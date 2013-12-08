@@ -1,50 +1,71 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <search.h>
-#include "./libbloom/bloom.h"
+#include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
 
-#define MAX_ENTRIES 262144
-#define MAX_LENGTH 48
+#include <marisa.h>
 
-char entries[MAX_ENTRIES][MAX_LENGTH];
+#define MAX_LENGTH 64
+#define READ_BUFFER 2048
+#define OUT_BUFFER 3078
 
-int main (int arc, char **argv) {
-    FILE *fp;
-    char buffer[MAX_LENGTH];
+extern uint8_t trie_data[]      asm("_binary_trie_bin_start");
+extern uint8_t trie_size[] asm("_binary_trie_bin_size");
 
-    unsigned long totalEntries = 0;
-    char word[MAX_LENGTH];
-    char delim;
-    int i;
+marisa::Agent agent;
+marisa::Trie trie;
 
-    struct bloom bloom;
-    bloom_init(&bloom, MAX_ENTRIES, 0.001);
-
-    fp = fopen("/usr/share/dict/words", "r");
-
-    if (fp == NULL)
-        exit(EXIT_FAILURE);
-
-    while(fscanf(fp, "%48[^\n]%*c", buffer) > 0){
-        // Swallow anything beginning with an upper-case
-        if(islower(buffer[0])){
-            bloom_add(&bloom, buffer, strlen(buffer));
+int write_word(char* lowered, char* word, int len, char* output){
+    if(len){
+        word[len] = '\0';
+        agent.set_query(lowered, len);
+        if(trie.lookup(agent)){
+            memcpy(output, word, len);
+        } else {
+            output[0] = '<';
+            memcpy(&output[1], word, len);
+            output[len+1] = '>';
+            return len+2;
         }
     }
-    fclose (fp);
+    return len;
+}
 
-    while(scanf(" %64[^ \n]%c", word, &delim) > 0) {
-        strncpy(buffer, word, MAX_LENGTH);
-        for(i=0; buffer[i]; i++){
-            buffer[i] = tolower(buffer[i]);
+int main () {
+    char word[MAX_LENGTH];
+    char lowered[MAX_LENGTH];
+    char buffer[READ_BUFFER];
+    char output[OUT_BUFFER];
+    char curr;
+    int word_pos = 0, buff_pos, out_pos = 0, cnt;
+
+    //setvbuf(stdout, NULL, _IOFBF, 0);
+    int flags = fcntl(0, F_GETFL, 0);
+    fcntl(0, F_SETFL, flags | O_NONBLOCK);
+
+    size_t size = (size_t)((void *)trie_size);
+
+    trie.map(trie_data, size);
+
+    while((cnt = read(0, buffer, READ_BUFFER)) > 0){
+        for(buff_pos=0; buff_pos < cnt; buff_pos++){
+            curr = buffer[buff_pos];
+            if(curr == '\n' || curr == ' '){
+                out_pos += write_word(lowered, word, word_pos, &output[out_pos]);
+                output[out_pos] = curr;
+                out_pos++;
+                word_pos = 0;
+            } else {
+                word[word_pos] = curr;
+                lowered[word_pos] = tolower(curr);
+                word_pos++;
+            }
         }
 
-        if(bloom_check(&bloom, buffer, strlen(buffer))){
-            printf("%s%c", word, delim);
-        } else {
-            printf("<%s>%c", word, delim);
-        }
+        write(1, output, out_pos);
+        out_pos = 0;
     }
 
     return 0;
