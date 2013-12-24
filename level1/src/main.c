@@ -15,7 +15,11 @@ git_repository *repo = NULL;
 
 char volatile stop = 0;
 char volatile updateStop = 0;
-char volatile updated = 0;
+char updated = 0;
+git_oid *push_commit;
+
+pthread_mutex_t commit_mutex;
+pthread_mutex_t update_mutex;
 
 // Copied from libgit2 examples
 void check_lg2(int error, const char *message, const char *extra)
@@ -63,8 +67,6 @@ int prepare_index(git_index *index, char* msg){
     git_reference *head;
     char tree_str[GIT_OID_HEXSZ+1], parent_str[GIT_OID_HEXSZ+1];
 
-    reset_hard();
-
     // Get the head OID
     git_repository_head(&head, repo);
     git_reference_peel((git_object**)&head_obj, head, GIT_OBJ_COMMIT);
@@ -109,9 +111,12 @@ int prepare_index(git_index *index, char* msg){
 }
 
 int check_updates(){
-    git_reference *head, *remote_head;
+    git_reference *before_head, *after_head;
     int retval;
     FILE *fp;
+
+    check_lg2(git_reference_lookup(&before_head, repo, "refs/remotes/origin/master"),
+              "Could not lookup master branch (before)", NULL);
 
     fp = popen("git fetch -q 2>/dev/null", "r");
 
@@ -120,69 +125,105 @@ int check_updates(){
         exit(1);
     }
 
-    git_repository_head(&head, repo);
+    check_lg2(git_reference_lookup(&after_head, repo, "refs/remotes/origin/master"),
+              "Could not lookup master branch (after)", NULL);
 
-    check_lg2(git_reference_lookup(&remote_head, repo, "refs/remotes/origin/master"),
-              "Could not lookup master branch", NULL);
-
-    // Differing,
-    if(git_reference_cmp(head, remote_head)){
+    // Fetch updated things
+    if(git_reference_cmp(before_head, after_head)){
         printf("Update detected\n");
-        reset_hard();
-
         retval = 1;
     } else {
         retval = 0;
     }
 
-    git_reference_free(head);
-    git_reference_free(remote_head);
+    git_reference_free(before_head);
+    git_reference_free(after_head);
 
     return retval;
 }
 
+int push_result(git_oid *commit){
+    char cmd[128], commit_str[GIT_OID_HEXSZ+1], buff[128];
+    FILE *fp;
+
+    git_oid_tostr(commit_str, GIT_OID_HEXSZ+1, commit);
+    snprintf(cmd, 128, "git push origin %s:master", commit_str);
+
+    printf("%s\n", cmd);
+
+    fp = popen(cmd, "r");
+
+    while(fgets(buff, 128, fp)){
+        if(strncmp("remote: ", buff, 128) == 0){
+            puts(buff);
+        }
+    }
+
+    return pclose(fp);
+}
+
 void* check_updates_worker(void* arg){
+    timing_info timing;
+    reset_timing(&timing);
+
     while(!updateStop){
-        if(check_updates() && !updateStop){
-            updated = 1;
+        if(!updated && push_commit){
+            start_timing(&timing);
+
+            pthread_mutex_lock(&commit_mutex);
+
+            if(push_result(push_commit)){
+                printf("Failed to push coin, checking for updates. \n");
+
+                pthread_mutex_lock(&update_mutex);
+
+                if(check_updates()){
+                    reset_hard();
+                    updated = 1;
+                }
+
+                pthread_mutex_unlock(&update_mutex);
+            } else {
+                printf("Earned it!\n");
+            }
+            push_commit = NULL;
+
+            pthread_mutex_unlock(&commit_mutex);
+
+            time_point(&timing);
+            print_timing(&timing);
+        } else {
+            usleep(10);
         }
     }
     pthread_exit(NULL);
 }
 
 void int_handler(int sig){
-    // Not entirely threadsafe
+    // Not super threadsafe but meh
     stop = 1;
     updated = 1;
 }
 
-int push_result(char* msg){
+void commit_result(char* msg, git_oid *commit){
     git_odb *odb;
-    git_oid oid;
-    FILE *fp;
-    char cmd[128], commit_str[GIT_OID_HEXSZ+1];
 
     check_lg2(git_repository_odb(&odb, repo),
               "Could not allocate odb poiner", NULL);
 
-    check_lg2(git_odb_write(&oid, odb, &msg[11], MSG_LENGTH, GIT_OBJ_COMMIT),
+    check_lg2(git_odb_write(commit, odb, &msg[11], MSG_LENGTH, GIT_OBJ_COMMIT),
               "Error writing commit", NULL);
 
+    check_lg2(git_reference_create(NULL, repo, "refs/heads/master", commit, 1),
+              "Could not update head", NULL);
+
     git_odb_free(odb);
-
-    git_oid_tostr(commit_str, GIT_OID_HEXSZ+1, &oid);
-    snprintf(cmd, 128, "git push origin %s:master", commit_str);
-
-    printf("%s\n", cmd);
-
-    return system(cmd);
 }
 
 void init_args(hash_args *args){
     FILE *fp;
     fp = fopen("difficulty.txt", "r");
     fscanf(fp, "%u", &args->difficulty);
-
 
     if(args->difficulty % 2){
         printf("Difficulty is not a multiple of 2: %u\n", args->difficulty);
@@ -211,32 +252,53 @@ int main () {
     int rc;
     void *status;
     hash_args args;
+    timing_info timing;
+    git_oid curr_commit;
+
+    pthread_mutex_init(&commit_mutex, NULL);
+    pthread_mutex_init(&update_mutex, NULL);
+    push_commit = NULL;
 
     init_args(&args);
     init_git(&index);
 
     check_updates();
+    reset_hard();
+
+    printf("Starting update thread\n");
+    rc = pthread_create(&updateThread, NULL, check_updates_worker, NULL);
+    if (rc){
+        printf("ERROR creating update thread %d\n", rc);
+        exit(-1);
+    }
 
     signal (SIGINT, int_handler);
 
+    reset_timing(&timing);
+
     while(!stop){
-        printf("Preparing index\n");
+        start_timing(&timing);
 
-        prepare_index(index, args.msg);
-
-        updateStop = 0;
-        updated = 0;
         args.found = 0;
 
-        printf("Starting update thread\n");
-        rc = pthread_create(&updateThread, NULL, check_updates_worker, NULL);
-        if (rc){
-            printf("ERROR creating update thread %d\n", rc);
-            exit(-1);
-        }
+        time_point(&timing);
+
+        pthread_mutex_lock(&update_mutex);
+        updated = 0;
+        pthread_mutex_unlock(&update_mutex);
+
+        time_point(&timing);
+
+        printf("Preparing index\n");
+        prepare_index(index, args.msg);
+
+        time_point(&timing);
 
         printf("Starting brute force thread\n");
         rc = pthread_create(&hashThread, NULL, force_hash, &args);
+
+        time_point(&timing);
+
         if (rc){
             printf("ERROR creating hash thread %d\n", rc);
             stop = 1;
@@ -244,18 +306,35 @@ int main () {
             pthread_join(hashThread, &status);
         }
 
-        updateStop = 1;
+        time_point(&timing);
 
         if(!stop && !updated && args.found){
-            if(push_result(args.msg)){
-                printf("Found one but the push failed\n");
-            } else {
-                printf("Earned a coin!\n");
+            printf("Found one!\n");
+
+            while(push_commit){
+                usleep(10);
             }
+
+            time_point(&timing);
+
+            if(!stop && !updated){
+                pthread_mutex_lock(&commit_mutex);
+
+                commit_result(args.msg, &curr_commit);
+                push_commit = &curr_commit;
+
+                pthread_mutex_unlock(&commit_mutex);
+            }
+        } else {
+            skip_point(&timing);
         }
 
-        pthread_join(updateThread, &status);
+        time_point(&timing);
+        print_timing(&timing);
     }
+
+    updateStop = 1;
+    pthread_join(updateThread, &status);
 
     free(args.msg);
 

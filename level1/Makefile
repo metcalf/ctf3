@@ -1,8 +1,8 @@
 CC=gcc
-CFLAGS = -Wall -g
+CFLAGS = -Wall -O3
 INCLUDES = -I../libgit2/include -Isrc/
 LIBS = -lgit2 -lcrypto -lssl
-SRCS = src/naive.c src/main.c
+SRCS = src/naive.c src/main.c src/common.c
 OBJS = $(SRCS:.c=.o)
 MAIN = level1
 
