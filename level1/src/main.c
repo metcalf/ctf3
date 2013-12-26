@@ -11,24 +11,28 @@
 #include "common.h"
 #include "naive.h"
 
+#define REMOTE_COUNT 2
+
 git_repository *repo = NULL;
 
 char volatile stop = 0;
-char volatile updateStop = 0;
 char updated = 0;
 git_oid *push_commit;
 
+git_remote *connected_remotes[REMOTE_COUNT];
+int current_remote = -1;
+
 pthread_mutex_t commit_mutex;
 pthread_mutex_t update_mutex;
+pthread_mutex_t remote_mutex;
 
 // Copied from libgit2 examples
-void check_lg2(int error, const char *message, const char *extra)
-{
+int log_lg2(int error, const char *message, const char *extra){
     const git_error *lg2err;
     const char *lg2msg = "", *lg2spacer = "";
 
     if (!error)
-        return;
+        return error;
 
     if ((lg2err = giterr_last()) != NULL && lg2err->message != NULL) {
         lg2msg = lg2err->message;
@@ -42,7 +46,15 @@ void check_lg2(int error, const char *message, const char *extra)
         fprintf(stderr, "%s [%d]%s%s\n",
                 message, error, lg2spacer, lg2msg);
 
-    exit(1);
+    return error;
+}
+
+void check_lg2(int error, const char *message, const char *extra)
+{
+    log_lg2(error, message, extra);
+    if(error){
+        exit(1);
+    }
 }
 
 void reset_hard(){
@@ -110,27 +122,32 @@ int prepare_index(git_index *index, char* msg){
     return 0;
 }
 
-int check_updates(){
-    git_reference *before_head, *after_head;
-    int retval;
+void fetch_updates(){
     FILE *fp;
-
-    check_lg2(git_reference_lookup(&before_head, repo, "refs/remotes/origin/master"),
-              "Could not lookup master branch (before)", NULL);
 
     fp = popen("git fetch -q 2>/dev/null", "r");
 
     if(pclose(fp) == -1){
-        printf("Error closing fetch pipe");
+        puts("Error closing fetch pipe");
         exit(1);
     }
+}
+
+int check_updates(){
+    git_reference *before_head, *after_head;
+    int retval;
+
+    check_lg2(git_reference_lookup(&before_head, repo, "refs/remotes/origin/master"),
+              "Could not lookup master branch (before)", NULL);
+
+    fetch_updates();
 
     check_lg2(git_reference_lookup(&after_head, repo, "refs/remotes/origin/master"),
               "Could not lookup master branch (after)", NULL);
 
     // Fetch updated things
     if(git_reference_cmp(before_head, after_head)){
-        printf("Update detected\n");
+        puts("Update detected");
         retval = 1;
     } else {
         retval = 0;
@@ -142,49 +159,145 @@ int check_updates(){
     return retval;
 }
 
+int record_push_status_cb(const char *ref, const char *msg, void *retval){
+    if(msg){
+        printf("Push: '%s' failed with %s\n", ref, msg);
+        (*(int*)retval) |= 1;
+    }
+    return 0;
+}
+
+static int cred_acquire_cb(git_cred **cred, const char *url,
+                           const char *user_from_url,
+                           unsigned int allowed_types,
+                           void *payload){
+    return git_cred_ssh_none_new(cred, user_from_url);
+}
+
 int push_result(git_oid *commit){
-    char cmd[128], commit_str[GIT_OID_HEXSZ+1], buff[128];
-    FILE *fp;
+    git_remote *remote;
+    git_push *push;
+    int retval = 0;
+    char cmd[128];
 
-    git_oid_tostr(commit_str, GIT_OID_HEXSZ+1, commit);
-    snprintf(cmd, 128, "git push origin %s:master", commit_str);
+    // Find a connected remote to use
+    do {
+        pthread_mutex_lock(&remote_mutex);
 
-    printf("%s\n", cmd);
+        current_remote = (current_remote + 1) % REMOTE_COUNT;
+        printf("Trying remote %d\n", current_remote);
+        remote = connected_remotes[current_remote];
 
-    fp = popen(cmd, "r");
+        pthread_mutex_unlock(&remote_mutex);
+    } while(!(remote && git_remote_connected(remote)));
+    printf("Using remote %d\n", current_remote);
 
-    while(fgets(buff, 128, fp)){
-        if(strncmp("remote: ", buff, 128) == 0){
-            puts(buff);
+    git_oid_tostr(cmd, 128, commit);
+    strncat(cmd, ":refs/heads/master", 128);
+
+    check_lg2(git_push_new(&push, remote),
+              "Error creating push", NULL);
+    check_lg2(git_push_add_refspec(push, cmd),
+              "Failed to add refspec to push", NULL);
+
+    retval = log_lg2(git_push_finish(push),
+                     "Failed to finish push", NULL);
+
+    if(retval || !git_push_unpack_ok(push)){
+        puts("Push: unpack failed!");
+        retval = 1;
+    } else {
+        git_push_status_foreach(push, record_push_status_cb, &retval);
+    }
+
+    git_push_free(push);
+
+    pthread_mutex_lock(&remote_mutex);
+    git_remote_disconnect(remote);
+    pthread_mutex_unlock(&remote_mutex);
+
+    return retval;
+}
+
+void* connect_remotes_worker(void* arg){
+    int i = 0;
+    git_remote *remotes[REMOTE_COUNT];
+
+    git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
+    callbacks.credentials = cred_acquire_cb;
+
+    for(i=0; i < REMOTE_COUNT; i++){
+        check_lg2(git_remote_load(&remotes[i], repo, "origin"),
+                  "Error opening remote", NULL);
+        check_lg2(git_remote_set_callbacks(remotes[i], &callbacks),
+                  "Error setting credential callback", NULL);
+    }
+
+    i = -1;
+    while(!stop){
+        i = (i + 1) % REMOTE_COUNT;
+
+        pthread_mutex_lock(&remote_mutex);
+
+        if(current_remote == i ||
+           (connected_remotes[i] && git_remote_connected(remotes[i]))){
+            pthread_mutex_unlock(&remote_mutex);
+            continue;
+        }
+        connected_remotes[i] = NULL;
+
+        pthread_mutex_unlock(&remote_mutex);
+
+        if(git_remote_connect(remotes[i], GIT_DIRECTION_PUSH)){
+            puts("Looks like a new game");
+
+            pthread_mutex_lock(&update_mutex);
+
+            fetch_updates();
+            updated = 1;
+
+            pthread_mutex_unlock(&update_mutex);
+        } else {
+            pthread_mutex_lock(&remote_mutex);
+
+            printf("Connected remote %d\n", i);
+            connected_remotes[i] = remotes[i];
+
+            pthread_mutex_unlock(&remote_mutex);
         }
     }
 
-    return pclose(fp);
+    for(i=0; i < REMOTE_COUNT; i++){
+        git_remote_free(remotes[i]);
+    }
+
+    puts("Push remotes thread ending");
+
+    pthread_exit(NULL);
 }
 
 void* check_updates_worker(void* arg){
     timing_info timing;
     reset_timing(&timing);
 
-    while(!updateStop){
-        if(!updated && push_commit){
-            start_timing(&timing);
+    while(!stop){
+        start_timing(&timing);
 
+        if(!updated && push_commit){
             pthread_mutex_lock(&commit_mutex);
 
             if(push_result(push_commit)){
-                printf("Failed to push coin, checking for updates. \n");
+                puts("Failed to push coin, checking for updates.");
 
                 pthread_mutex_lock(&update_mutex);
 
                 if(check_updates()){
-                    reset_hard();
                     updated = 1;
                 }
 
                 pthread_mutex_unlock(&update_mutex);
             } else {
-                printf("Earned it!\n");
+                puts("Earned it!");
             }
             push_commit = NULL;
 
@@ -193,9 +306,13 @@ void* check_updates_worker(void* arg){
             time_point(&timing);
             print_timing(&timing);
         } else {
+            skip_point(&timing);
             usleep(10);
         }
     }
+
+    puts("Update thread ending");
+
     pthread_exit(NULL);
 }
 
@@ -246,9 +363,9 @@ void init_git(git_index **index){
               "Could not open repository index", NULL);
 }
 
-int main () {
+int main (int argc, char **argv) {
     git_index *index = NULL;
-    pthread_t updateThread, hashThread;
+    pthread_t updateThread, hashThread, remotesThread;
     int rc;
     void *status;
     hash_args args;
@@ -257,6 +374,7 @@ int main () {
 
     pthread_mutex_init(&commit_mutex, NULL);
     pthread_mutex_init(&update_mutex, NULL);
+    pthread_mutex_init(&remote_mutex, NULL);
     push_commit = NULL;
 
     init_args(&args);
@@ -265,7 +383,14 @@ int main () {
     check_updates();
     reset_hard();
 
-    printf("Starting update thread\n");
+    puts("Starting remotes thread");
+    rc = pthread_create(&remotesThread, NULL, connect_remotes_worker, NULL);
+    if (rc){
+        printf("ERROR creating remotes thread %d\n", rc);
+        exit(-1);
+    }
+
+    puts("Starting update thread");
     rc = pthread_create(&updateThread, NULL, check_updates_worker, NULL);
     if (rc){
         printf("ERROR creating update thread %d\n", rc);
@@ -274,9 +399,8 @@ int main () {
 
     signal (SIGINT, int_handler);
 
-    reset_timing(&timing);
-
     while(!stop){
+        reset_timing(&timing);
         start_timing(&timing);
 
         args.found = 0;
@@ -284,17 +408,20 @@ int main () {
         time_point(&timing);
 
         pthread_mutex_lock(&update_mutex);
-        updated = 0;
+        if(updated){
+            reset_hard();
+            updated = 0;
+        }
         pthread_mutex_unlock(&update_mutex);
 
         time_point(&timing);
 
-        printf("Preparing index\n");
+        puts("Preparing index");
         prepare_index(index, args.msg);
 
         time_point(&timing);
 
-        printf("Starting brute force thread\n");
+        puts("Starting brute force thread");
         rc = pthread_create(&hashThread, NULL, force_hash, &args);
 
         time_point(&timing);
@@ -309,7 +436,7 @@ int main () {
         time_point(&timing);
 
         if(!stop && !updated && args.found){
-            printf("Found one!\n");
+            puts("Found one!");
 
             while(push_commit){
                 usleep(10);
@@ -326,15 +453,16 @@ int main () {
                 pthread_mutex_unlock(&commit_mutex);
             }
         } else {
-            skip_point(&timing);
+            puts("Reset while looking for a hash");
+            time_point(&timing);
         }
 
         time_point(&timing);
         print_timing(&timing);
     }
 
-    updateStop = 1;
     pthread_join(updateThread, &status);
+    pthread_join(remotesThread, &status);
 
     free(args.msg);
 
