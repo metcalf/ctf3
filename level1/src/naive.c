@@ -4,12 +4,12 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include "naive.h"
 
 SHA_CTX msg_ctx;
 char worker_stop;
-char *all_stop;
 int difficulty;
 char *solution;
 
@@ -19,35 +19,34 @@ pthread_cond_t solved;
 #define THREAD_COUNT 8
 
 void* force_worker(void* thread_id){
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    int i;
     SHA_CTX tmp_ctx;
-    char current[64];
+    char block[BLOCK_LENGTH];
+    // Backwards because we're little endian
+    SHA_LONG mask = 0xffffffff << (32 - difficulty * 4);
 
-    // Set a byte so threads work separately
-    current[32] = (char) thread_id;
-    unsigned long long *modifier = current;
+    memcpy(block, solution, BLOCK_LENGTH);
 
-    while(!(*all_stop || worker_stop)){
+    block[BLOCK_LENGTH-PADDING_LENGTH-5] = (char) thread_id;
+    unsigned int *modifier = (unsigned int*)&block[BLOCK_LENGTH-PADDING_LENGTH-4];
+
+    while(!worker_stop){
         (*modifier)++;
 
-        memcpy(&tmp_ctx, &msg_ctx, sizeof(SHA_CTX));
+        memcpy(&tmp_ctx, &msg_ctx, sizeof(SHA_LONG) * 5);
 
-        SHA1_Update(&tmp_ctx, current, BLOCK_LENGTH);
-        SHA1_Final(hash, &tmp_ctx);
+        SHA1_Transform(&tmp_ctx, block);
 
-        for(i=0; i < difficulty; i++){
-            if(hash[i] != 0){
-                break;
+        if(!(tmp_ctx.h0 & mask)){
+            // Found!
+            while(pthread_mutex_trylock(&solution_mutex)){
+                usleep(1);
+                if(worker_stop)
+                    break;
             }
-        }
 
-        if(i == difficulty){
-            pthread_mutex_lock(&solution_mutex);
-
-            memcpy(solution, current, BLOCK_LENGTH);
-
+            memcpy(solution, block, BLOCK_LENGTH);
             pthread_cond_signal(&solved);
+
             pthread_mutex_unlock(&solution_mutex);
 
             break;
@@ -64,12 +63,11 @@ void* force_hash(hash_args *args){
     struct timespec abstime;
 
     SHA1_Init(&msg_ctx);
-    SHA1_Update(&msg_ctx, args->msg, COMMIT_LENGTH-BLOCK_LENGTH);
+    SHA1_Update(&msg_ctx, args->msg, BUFFER_LENGTH-BLOCK_LENGTH);
 
     worker_stop = 0;
-    all_stop = args->stop;
     difficulty = args->difficulty;
-    solution = &args->msg[COMMIT_LENGTH-BLOCK_LENGTH];
+    solution = &args->msg[BUFFER_LENGTH-BLOCK_LENGTH];
 
     pthread_mutex_init(&solution_mutex, NULL);
     pthread_cond_init (&solved, NULL);
@@ -81,22 +79,23 @@ void* force_hash(hash_args *args){
 
     printf("Waiting for a solution\n");
 
-    while(!(*all_stop)){
+    while(!(*args->stop)){
 
         gettimeofday(&now, NULL);
         abstime = (struct timespec) { now.tv_sec + 1, now.tv_usec*1000 };
 
         i = pthread_cond_timedwait(&solved, &solution_mutex, &abstime);
         if (i != ETIMEDOUT){
-            worker_stop = 1;
             args->found = 1;
             break;
         }
     }
 
+    worker_stop = 1;
+
     for (i=0; i<THREAD_COUNT; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    pthread_exit(NULL);
+    return NULL; // May be called from main thread
 }

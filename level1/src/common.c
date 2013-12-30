@@ -63,3 +63,20 @@ void print_timing(timing_info *info){
 
     printf("\n");
 }
+
+int pad_message(char *msg, unsigned int length, unsigned int buffer_length){
+    int bit_length = length * 8;
+    if(buffer_length < length + 9){
+        puts("Buffer is too short!");
+        return -1;
+    }
+
+    msg[length] = '\x80';
+
+    memset(&msg[length+1], 0, 6);
+
+    msg[length+7] = (bit_length >> 8) & 0xff;
+    msg[length+8] =(char)bit_length & 0xff;
+
+    return 0;
+}
