@@ -1,32 +1,63 @@
-CC=gcc
-CFLAGS = -Wall -O3 -mtune=native
-INCLUDES = -I../libgit2/include -Isrc/
-LIBS = -lgit2 -lcrypto -lssl
-SRCS = src/naive.c src/main.c src/common.c
-OBJS = $(SRCS:.c=.o)
-MAIN = level1
+# #
+# The OpenCL compiler, used to compile OpenCL kernels.
+# #
+CLC = /System/Library/Frameworks/OpenCL.framework/Libraries/openclc
+FRAMEWORKS = -framework OpenCL
 
-BENCHMARK_SRCS = src/naive.c src/common.c src/benchmark.c
-BENCHMARK_OBJS = $(BENCHMARK_SRCS:.c=.o)
-BENCHMARK_MAIN = benchmark
+NVCC = nvcc
+NVCCFLAGS = -gencode arch=compute_30,code=\"sm_30,compute_30\" -Xptxas="-v"
+
+CC=gcc
+CFLAGS = -Wall -O3 -mtune=native -DIMPL_CUDA -g
+INCLUDES = -I../libgit2/include -Isrc/ -I/usr/local/cuda/include
+LIBS = -L/usr/local/cuda/lib -lgit2 -lcrypto -lssl -lcuda -lcudart
+
+SRCS = src/cuda.c src/common.c
+CL_SRCS = src/kernel.cl
+CU_SRCS = src/sha1.cu
+
+OBJS = $(SRCS:.c=.o)
+OBJS += $(CU_SRCS:.cu=.o)
+
+# #
+# For each OpenCL C source file, we want to build:
+#
+#   file.cpu64.bc, and file.gpu32.bc, where file is the
+#   source name preceding the .cl extension.
+# #
+BITCODE += ${CL_SRCS:.cl=.cpu64.bc}
+BITCODE += ${CL_SRCS:.cl=.gpu32.bc}
 
 .PHONY: depend clean
+.SECONDARY:
 
-all:    $(MAIN)
+all: build/level1 build/benchmark $(BITCODE) $(OBJS)
 
-$(MAIN): $(OBJS) $(BENCHMARK_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(BENCHMARK_MAIN) $(BENCHMARK_OBJS) $(LFLAGS) $(LIBS)
+build/%: $(OBJS) src/%.o
+	$(CC) $(CFLAGS) $(INCLUDES) $(FRAMEWORKS) $(LFLAGS) $(LIBS) $^ -o $@
 
-# this is a suffix replacement rule for building .o's from .c's
-# it uses automatic variables $<: the name of the prerequisite of
-# the rule(a .c file) and $@: the name of the target of the rule (a .o file)
-# (see the gnu make manual section about automatic variables)
-.c.o:
+%.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
 
+%.o: %.cu
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+
+# #
+# The OpenCL C compilation commands for 32/64bit CPUs and 32bit GPUs:
+#
+# As an example, to compile for a 32bit GPU:
+# openclc -x cl -triple gpu_32-applecl-darwin -emit-llvm-bc kernel.cl -o kernel.bc
+# #
+%.cpu64.bc: %.cl
+	$(CLC) -x cl -triple x86_64-applecl-darwin -emit-llvm-bc $< -o $@
+
+%.gpu32.bc: %.cl
+	$(CLC) -x cl -triple gpu_32-applecl-darwin -emit-llvm-bc $< -o $@
+
+
+
 clean:
-	$(RM) src/*.o *~ $(MAIN) $(BENCHMARK_MAIN)
+	$(RM) src/*.o src/*.bc *~ build/*
 
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^

@@ -10,7 +10,7 @@
 
 SHA_CTX msg_ctx;
 char worker_stop;
-int difficulty;
+SHA_LONG mask;
 char *solution;
 
 pthread_mutex_t solution_mutex;
@@ -18,11 +18,9 @@ pthread_cond_t solved;
 
 #define THREAD_COUNT 8
 
-void* force_worker(void* thread_id){
+static void* force_worker(void* thread_id){
     SHA_CTX tmp_ctx;
     char block[BLOCK_LENGTH];
-    // Backwards because we're little endian
-    SHA_LONG mask = 0xffffffff << (32 - difficulty * 4);
 
     memcpy(block, solution, BLOCK_LENGTH);
 
@@ -56,6 +54,11 @@ void* force_worker(void* thread_id){
     pthread_exit(NULL);
 }
 
+void init_hash(unsigned char difficulty){
+    // Backwards because we're little endian
+    mask = 0xffffffff << (32 - difficulty * 4);
+}
+
 void* force_hash(hash_args *args){
     int i;
     pthread_t threads[THREAD_COUNT];
@@ -66,7 +69,6 @@ void* force_hash(hash_args *args){
     SHA1_Update(&msg_ctx, args->msg, BUFFER_LENGTH-BLOCK_LENGTH);
 
     worker_stop = 0;
-    difficulty = args->difficulty;
     solution = &args->msg[BUFFER_LENGTH-BLOCK_LENGTH];
 
     pthread_mutex_init(&solution_mutex, NULL);

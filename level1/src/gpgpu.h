@@ -1,3 +1,5 @@
+#include <OpenCL/opencl.h>
+
 #include "./common.h"
 
 int init_hasher(unsigned char difficulty);

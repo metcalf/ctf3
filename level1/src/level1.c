@@ -9,7 +9,14 @@
 #include "git2.h"
 
 #include "common.h"
+
+#ifdef IMPL_THREAD
 #include "naive.h"
+#elif IMPL_CUDA
+#include "cuda.h"
+#else
+#include "gpgpu.h"
+#endif
 
 git_repository *repo = NULL;
 
@@ -21,7 +28,7 @@ pthread_mutex_t commit_mutex;
 pthread_mutex_t update_mutex;
 
 // Copied from libgit2 examples
-int log_lg2(int error, const char *message, const char *extra){
+static int log_lg2(int error, const char *message, const char *extra){
     const git_error *lg2err;
     const char *lg2msg = "", *lg2spacer = "";
 
@@ -43,7 +50,7 @@ int log_lg2(int error, const char *message, const char *extra){
     return error;
 }
 
-void check_lg2(int error, const char *message, const char *extra)
+static void check_lg2(int error, const char *message, const char *extra)
 {
     log_lg2(error, message, extra);
     if(error){
@@ -51,7 +58,7 @@ void check_lg2(int error, const char *message, const char *extra)
     }
 }
 
-void reset_hard(){
+static void reset_hard(){
     git_object *remote_commit;
     git_reference *remote_head;
 
@@ -67,7 +74,7 @@ void reset_hard(){
     git_reference_free(remote_head);
 }
 
-int prepare_index(git_index *index, char* msg){
+static int prepare_index(git_index *index, char* msg){
     git_oid index_tree;
     git_tree *head_obj;
     git_reference *head;
@@ -105,9 +112,10 @@ int prepare_index(git_index *index, char* msg){
              "author Andrew Metcalf <andrew@stripe.com> %d +0000\n"
              "committer Andrew Metcalf <andrew@stripe.com> %d +0000\n"
              "\n"
-             "Brute force!!!"
-             "\x01\x01" // thread id
-             "\x01\x01\x01\x01", // Force block
+             "Brute it!"
+             "\x01\x01\x01\x01"
+             "\x01\x01\x01\x01"
+             "\x01\x01\x01", // Align 32 bit words on GPU
              MSG_LENGTH, 0, tree_str, parent_str,
              (int)time(NULL), (int)time(NULL));
     pad_message(msg, COMMIT_LENGTH, BUFFER_LENGTH);
@@ -115,7 +123,7 @@ int prepare_index(git_index *index, char* msg){
     return 0;
 }
 
-void fetch_updates(){
+static void fetch_updates(){
     FILE *fp;
 
     fp = popen("git fetch -q 2>/dev/null", "r");
@@ -126,7 +134,7 @@ void fetch_updates(){
     }
 }
 
-int check_updates(){
+static int check_updates(){
     git_reference *before_head, *after_head;
     int retval;
 
@@ -152,7 +160,7 @@ int check_updates(){
     return retval;
 }
 
-int record_push_status_cb(const char *ref, const char *msg, void *retval){
+static int record_push_status_cb(const char *ref, const char *msg, void *retval){
     if(msg){
         printf("Push: '%s' failed with %s\n", ref, msg);
         (*(int*)retval) |= 1;
@@ -167,7 +175,7 @@ static int cred_acquire_cb(git_cred **cred, const char *url,
     return git_cred_ssh_none_new(cred, user_from_url);
 }
 
-int push_result_lib(git_oid *commit, git_remote *remote){
+static int push_result_lib(git_oid *commit, git_remote *remote){
     git_push *push;
     int retval = 0;
     char cmd[128];
@@ -196,7 +204,7 @@ int push_result_lib(git_oid *commit, git_remote *remote){
     return retval;
 }
 
-int push_result_shell(git_oid *commit, git_remote *remote){
+static int push_result_shell(git_oid *commit, git_remote *remote){
     char cmd[128], oid[GIT_OID_HEXSZ+1];
     FILE *fp;
 
@@ -209,7 +217,7 @@ int push_result_shell(git_oid *commit, git_remote *remote){
     return pclose(fp);
 }
 
-void* check_updates_worker(void* arg){
+static void* check_updates_worker(void* arg){
     git_remote *remote;
 
     git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
@@ -276,13 +284,13 @@ void* check_updates_worker(void* arg){
     pthread_exit(NULL);
 }
 
-void int_handler(int sig){
+static void int_handler(int sig){
     // Not super threadsafe but meh
     stop = 1;
     updated = 1;
 }
 
-void commit_result(char* msg, git_oid *commit){
+static void commit_result(char* msg, git_oid *commit){
     git_odb *odb;
 
     check_lg2(git_repository_odb(&odb, repo),
@@ -297,23 +305,27 @@ void commit_result(char* msg, git_oid *commit){
     git_odb_free(odb);
 }
 
-void init_args(hash_args *args){
+static unsigned char init_args(hash_args *args){
     FILE *fp;
-    fp = fopen("difficulty.txt", "r");
-    fscanf(fp, "%hhd", &args->difficulty);
+    unsigned char difficulty;
 
-    if(args->difficulty > 8){
-        printf("Difficulty is greater than 8: %u\n", args->difficulty);
+    fp = fopen("difficulty.txt", "r");
+    fscanf(fp, "%hhd", &difficulty);
+
+    if(difficulty > 8){
+        printf("Difficulty is greater than 8: %u\n", difficulty);
         exit(1);
     } else {
-        printf("Difficulty is %u\n", args->difficulty);
+        printf("Difficulty is %u\n", difficulty);
     }
 
     args->msg = malloc(BUFFER_LENGTH);
     args->stop = &updated;
+
+    return difficulty;
 }
 
-void init_git(git_index **index){
+static void init_git(git_index **index){
     git_threads_init();
 
     check_lg2(git_repository_open(&repo, "."),
@@ -324,8 +336,8 @@ void init_git(git_index **index){
 
 int main (int argc, char **argv) {
     git_index *index = NULL;
-    pthread_t updateThread, hashThread, remotesThread;
-    int rc;
+    pthread_t updateThread, hashThread;
+    int rc, difficulty;
     void *status;
     hash_args args;
     timing_info timing;
@@ -337,8 +349,10 @@ int main (int argc, char **argv) {
     pthread_mutex_init(&update_mutex, NULL);
     push_commit = NULL;
 
-    init_args(&args);
+    difficulty = init_args(&args);
     init_git(&index);
+
+    init_hasher(difficulty);
 
     check_updates();
     reset_hard();
@@ -413,16 +427,14 @@ int main (int argc, char **argv) {
     }
 
     pthread_join(updateThread, &status);
-    pthread_join(remotesThread, &status);
 
+    free_hasher();
     free(args.msg);
 
     git_index_free(index);
     git_repository_free(repo);
 
     git_threads_shutdown();
-
-    pthread_exit(NULL);
 
     return 0;
 }

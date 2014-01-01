@@ -4,6 +4,13 @@
 #include <pthread.h>
 #include <sys/time.h>
 
+#include <openssl/sha.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+#include <time.h>
+
 #define BUFFER_LENGTH 256 // divisible mod 512 bits plus a null terminator
 #define PADDING_LENGTH 9
 #define PREAMBLE_LENGTH 11
@@ -25,7 +32,6 @@ typedef struct hash_args_struct {
     char *msg;
     char *stop;
     char found;
-    unsigned char difficulty;
 } hash_args;
 
 void reset_timing(timing_info *info);
