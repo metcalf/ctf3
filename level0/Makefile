@@ -9,12 +9,20 @@ DATA = src/trie.bin
 OBJS = $(SRCS:.c=.o)
 OBJS += $(DATA:.bin=.o)
 
+MARISA_CONFIGURE=../marisa-0.2.4/Makefile
+
 .PHONY: depend clean
 
-all: build/level0
+all: build_marisa build/level0
 
 build/%: $(OBJS) src/%.o
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LIBS)
+
+$(MARISA_CONFIGURE):
+	cd ../marisa-0.2.4 && ./configure --enable-sse4
+
+build_marisa: $(MARISA_CONFIGURE)
+	make -C ../marisa-0.2.4/
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
@@ -24,6 +32,7 @@ build/%: $(OBJS) src/%.o
 
 clean:
 	$(RM) src/*.o *~ build/*
+	make -C ../marisa-0.2.4/ distclean
 
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^
