@@ -11,8 +11,8 @@
 #define READ_BUFFER 2048
 #define OUT_BUFFER 3078
 
-extern uint8_t trie_data[]      asm("_binary_trie_bin_start");
-extern uint8_t trie_size[] asm("_binary_trie_bin_size");
+extern uint8_t trie_data[]      asm("_binary_src_trie_bin_start");
+extern uint8_t trie_size[] asm("_binary_src_trie_bin_size");
 
 marisa::Agent agent;
 marisa::Trie trie;
