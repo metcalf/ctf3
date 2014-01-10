@@ -1,18 +1,17 @@
 #include <stdint.h>
 
 #include "sha1.h"
-#include "cuda.h"
 
-__inline__ __device__ uint32_t swap(uint32_t v)
-{
-    return ((v & 0x000000ffU) << 24) |
-        ((v & 0x0000ff00U) << 8) |
-        ((v & 0x00ff0000U) >> 8) |
-        ((v & 0xff000000U) >> 24);
+__constant__ uint32_t c_block[16];
+__constant__ hash_digest_t c_ctx;
+__constant__ uint32_t c_mask;
+
+__device__ __forceinline__ uint32_t f1(uint32_t b, uint32_t c, uint32_t d){
+    return (b & c) | ((~b) & d);
 }
 
-__inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
-                                                hash_digest_t* h)
+__device__ __forceinline__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id, uint32_t idx,
+                                                     hash_digest_t* h)
 {
     uint32_t a = h->h0;
     uint32_t b = h->h1;
@@ -25,16 +24,22 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     uint32_t w[16];
     int i;
 
-#pragma unroll 16
-    for (i = 0; i < 16; i++) {
+#pragma unroll 11
+    for (i = 0; i < 11; i++) {
         w[i] = in[i];
     }
+
+    w[11] = idx;
     w[12] = id;
+
+#pragma unroll 3
+    for (i = 13; i < 16; i++) {
+        w[i] = in[i];
+    }
 
     k = 0x5A827999;
     //0 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[0];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[0];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -45,8 +50,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[0] = w[0] << 1 | w[0] >> 31;
 
     //1 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[1];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[1];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -57,8 +61,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[1] = w[1] << 1 | w[1] >> 31;
 
     //2 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[2];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[2];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -69,8 +72,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[2] = w[2] << 1 | w[2] >> 31;
 
     //3 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[3];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[3];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -81,8 +83,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[3] = w[3] << 1 | w[3] >> 31;
 
     //4 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[4];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[4];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -93,8 +94,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[4] = w[4] << 1 | w[4] >> 31;
 
     //5 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[5];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[5];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -105,8 +105,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[5] = w[5] << 1 | w[5] >> 31;
 
     //6 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[6];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[6];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -117,8 +116,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[6] = w[6] << 1 | w[6] >> 31;
 
     //7 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[7];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[7];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -129,8 +127,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[7] = w[7] << 1 | w[7] >> 31;
 
     //8 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[8];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[8];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -141,8 +138,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[8] = w[8] << 1 | w[8] >> 31;
 
     //9 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[9];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[9];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -153,8 +149,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[9] = w[9] << 1 | w[9] >> 31;
 
     //10 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[10];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[10];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -165,8 +160,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[10] = w[10] << 1 | w[10] >> 31;
 
     //11 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[11];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[11];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -177,8 +171,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[11] = w[11] << 1 | w[11] >> 31;
 
     //12 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[12];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[12];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -189,8 +182,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[12] = w[12] << 1 | w[12] >> 31;
 
     //13 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[13];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[13];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -201,8 +193,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[13] = w[13] << 1 | w[13] >> 31;
 
     //14 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[14];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[14];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -213,8 +204,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[14] = w[14] << 1 | w[14] >> 31;
 
     //15 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[15];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[15];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -225,8 +215,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[15] = w[15] << 1 | w[15] >> 31;
 
     //16 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[0];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[0];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -237,8 +226,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[0] = w[0] << 1 | w[0] >> 31;
 
     //17 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[1];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[1];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -249,8 +237,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[1] = w[1] << 1 | w[1] >> 31;
 
     //18 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[2];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[2];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -261,8 +248,7 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     w[2] = w[2] << 1 | w[2] >> 31;
 
     //19 of 0-20
-    f = (b & c) | ((~b) & d);
-    temp = ((a << 5) | (a >> 27)) + f + e + k + w[3];
+    temp = ((a << 5) | (a >> 27)) + f1(b, c, d) + e + k + w[3];
     e = d;
     d = c;
     c = (b << 30) | (b >> 2);
@@ -952,23 +938,43 @@ __inline__ __device__ uint32_t computeSHA1Block(uint32_t* in, uint32_t id,
     return h->h0 + a;
 }
 
-__global__ void shaforce(uint32_t* block,
-                         uint32_t* result,
-                         hash_digest_t* ctx,
-                         uint32_t* mask)
+__global__ void
+__launch_bounds__(THREADS_PER_BLOCK) // Add BLOCKS_PER_SM arg to limit register usage
+shaforce(volatile uint32_t* result,
+                         const __restrict__ uint32_t idx)
 {
+    uint8_t i;
+    uint32_t res;
     uint32_t global_id = blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t res = computeSHA1Block(block, global_id, ctx);
 
-    if(!(res & *mask)){
-        // Add one so zero can signal not-found
-        atomicMax((uint32_t*)result, global_id+1);
+    for(i = 0; i < 16; i++){
+        global_id |= (i << 24);
+
+        res = computeSHA1Block(c_block, global_id, idx, &c_ctx);
+
+        if(!(res & c_mask)){
+            // Add one so zero can signal not-found
+            atomicMax((uint32_t*)result, global_id+1);
+            break;
+        }/* else if(*result){
+            break;
+            }*/
+
+        global_id &= 0x00ffffff;
     }
 }
 
 
-extern "C" void force_kernel(unsigned int *d_block, unsigned int *d_result,
-                  hash_digest_t *d_sha_ctx, unsigned int *d_mask){
-    shaforce<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_block, d_result,
-                                                     d_sha_ctx, d_mask);
+extern "C" void force_kernel(unsigned int *d_result,
+                             const uint32_t idx){
+    shaforce<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_result, idx);
+}
+
+extern "C" cudaError_t copy_constants(uint32_t *h_block,
+                                      uint32_t *h_mask,
+                                      hash_digest_t *h_ctx){
+    return (cudaError_t)(
+        cudaMemcpyToSymbol(c_block, h_block, sizeof(uint32_t) * 16) |
+        cudaMemcpyToSymbol(c_mask, h_mask, sizeof(uint32_t)) |
+        cudaMemcpyToSymbol(c_ctx, h_ctx, sizeof(hash_digest_t)));
 }

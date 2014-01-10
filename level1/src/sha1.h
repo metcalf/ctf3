@@ -5,8 +5,10 @@
 
 #include "common.h"
 
-#define BLOCKS_PER_GRID 16
-#define THREADS_PER_BLOCK 256
+#define SM_COUNT 2
+#define BLOCKS_PER_SM 8
+#define THREADS_PER_BLOCK 2048 / BLOCKS_PER_SM
+#define BLOCKS_PER_GRID SM_COUNT * BLOCKS_PER_SM
 
 typedef struct hash_digest
 {
@@ -20,8 +22,11 @@ typedef struct hash_digest
 #ifdef __cplusplus
 extern "C" {
 #endif
-void force_kernel(uint32_t *d_block, uint32_t *d_result,
-                  hash_digest_t *d_sha_ctx, uint32_t *d_mask);
+void force_kernel(uint32_t *d_result, const uint32_t idx);
+
+cudaError_t copy_constants(uint32_t *h_block,
+                               uint32_t *h_mask,
+                               hash_digest_t *h_ctx);
 
 #endif
 #ifdef __cplusplus

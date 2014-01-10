@@ -28,7 +28,10 @@ int main(int argc, char **argv){
     unsigned long total = 0, curr;
     int tmp;
 
-    memset(msg, 0, BUFFER_LENGTH);
+    // Fill in some deterministic data
+    for(i = 0; i < BUFFER_LENGTH; i++){
+        msg[i] = i % 128;
+    }
 
     pad_message(msg, COMMIT_LENGTH, BUFFER_LENGTH);
 
@@ -50,11 +53,11 @@ int main(int argc, char **argv){
         *((int*)(&(msg[0]))) = i;
         args.found = 0;
 
-        //cudaProfilerStart();
+        cudaProfilerStart();
         gettimeofday(&start, NULL);
         force_hash(&args);
         gettimeofday(&end, NULL);
-        //cudaProfilerStop();
+        cudaProfilerStop();
 
         timersub(&end, &start, &diff);
         curr = diff.tv_sec * 1000 + diff.tv_usec / 1000;
