@@ -1,28 +1,19 @@
-CC=g++
-CFLAGS = -Wall -O3 -static
-INCLUDES = -I../marisa-0.2.4/lib -Isrc/
-LIBS = -L../marisa-0.2.4/lib/.libs -lmarisa
-
-SRCS = src/level0.c
-DATA = src/trie.bin
-
-OBJS = $(SRCS:.c=.o)
-OBJS += $(DATA:.bin=.o)
-
-MARISA_CONFIGURE=../marisa-0.2.4/Makefile
+CC=gcc
+CFLAGS = -Wall -O3 -march=native -DINFILE='"data/words"'
+INCLUDES = -Isrc/
 
 .PHONY: depend clean
 
-all: build_marisa build/level0
+all: build/bloom level0
 
-build/%: $(OBJS) src/%.o
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LIBS)
+build/bloom: src/bloom.o
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@
 
-$(MARISA_CONFIGURE):
-	cd ../marisa-0.2.4 && ./configure --enable-sse4
+level0: src/filter.o src/level0.o
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@
 
-build_marisa: $(MARISA_CONFIGURE)
-	make -C ../marisa-0.2.4/
+src/filter.bin: build/bloom
+	build/bloom
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
@@ -31,8 +22,7 @@ build_marisa: $(MARISA_CONFIGURE)
 	objcopy -B i386 -I binary -O elf64-x86-64 $< $@
 
 clean:
-	$(RM) src/*.o *~ build/*
-	make -C ../marisa-0.2.4/ distclean
+	$(RM) src/*.o src/*.bin *~ build/*
 
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^
