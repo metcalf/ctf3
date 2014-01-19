@@ -34,7 +34,7 @@ BITCODE += ${CL_SRCS:.cl=.gpu32.bc}
 all: build/level1 build/benchmark $(BITCODE) $(OBJS)
 
 build/%: $(OBJS) src/%.o
-	$(CC) $(CFLAGS) $(INCLUDES) $(FRAMEWORKS) $(LFLAGS) $(LIBS) $^ -o $@
+	$(CC) $(CFLAGS) $(INCLUDES) $(FRAMEWORKS) $(LIBS) $^ -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
