@@ -1,18 +1,22 @@
 #include <ctype.h>
 
+#define FNS 11
+
 void hash(char *string, unsigned int* output){
-    unsigned long state1 = 5381, state2 = 261;
-    int c;
+    unsigned long state[4] = {5381, 261, 0, 5381};
+    int c, i;
 
     while((c = tolower(*string++))){
-        state1 = ((state1 << 5) + state1) ^ c;
-        state2 = ((state2 << 5) + state2) ^ c;
+        state[0] = ((state[0] << 5) + state[0]) ^ c;
+        state[1] = ((state[1] << 5) + state[1]) ^ c;
+        state[2] = c + (state[2] << 6) + (state[2] << 16) - state[2];
+        state[3] = c + (state[3] << 6) + (state[3] << 16) - state[3];
     }
 
-    output[0] = state1 & 0x1FFFFF;
-    output[1] = (state1 >> 21) & 0x1FFFFF;
-    output[2] = (state1 >> (21*2)) & 0x1FFFFF;
-    output[3] = state2 & 0x1FFFFF;
-    output[4] = (state2 >> 21) & 0x1FFFFF;
-    output[5] = (state2 >> (21*2)) & 0x1FFFFF;
+    for(i = 0; i < FNS; i++){
+        output[i] = 0x3FFFFF & (state[(i * 22) / 64] >> ((i % 3) * 22));
+    }
+    output[2] |= 0x03 & (state[3] << 44);
+    output[5] |= 0x03 & (state[3] << 46);
+    output[8] |= 0x03 & (state[3] << 48);
 }

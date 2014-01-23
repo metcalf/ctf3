@@ -4,14 +4,14 @@
 
 #include "hash.c"
 
-#define SLOTS 262144
+#define SLOTS 524288
 
 unsigned char data[SLOTS];
 
 int main(){
     static const char outfile[] = "src/filter.bin";
 
-    unsigned int output[6];
+    unsigned int output[FNS];
     int i;
 
     FILE *fp = fopen(INFILE, "r");
@@ -29,7 +29,7 @@ int main(){
         }
 
         hash(line, output);
-        for(i = 0; i < 6; i++){
+        for(i = 0; i < FNS; i++){
             data[output[i] / 8] |= 1 << (output[i] % 8);
         }
     }

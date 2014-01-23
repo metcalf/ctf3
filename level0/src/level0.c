@@ -15,21 +15,25 @@ extern unsigned char bloom_size[] asm("_binary_src_filter_bin_size");
 
 size_t size = (size_t)((void *)bloom_size);
 
-#define match(offset) bloom_data[offset / 8] & (1 << offset % 8)
-
-int write_word(char* word, int len, char* output){
-    unsigned int hashOut[6];
+int write_word(char* word, int len, char* output, char all_alpha){
+    unsigned int hashOut[FNS];
+    int i;
+    unsigned long offset;
 
     if(len){
         word[len] = 0;
-        hash(word, hashOut);
+        if(all_alpha){
+            hash(word, hashOut);
+            for(i = 0; i < FNS; i++){
+                offset = hashOut[i];
+                if(!(bloom_data[offset / 8] & (1 << offset % 8))){
+                    all_alpha = 0;
+                    break;
+                }
+            }
+        }
 
-        if(match(hashOut[0]) &&
-           match(hashOut[1]) &&
-           match(hashOut[2]) &&
-           match(hashOut[3]) &&
-           match(hashOut[4]) &&
-           match(hashOut[5])){
+        if(all_alpha){
             memcpy(output, word, len);
         } else {
             output[0] = '<';
@@ -45,7 +49,7 @@ int main () {
     char word[MAX_LENGTH];
     char buffer[READ_BUFFER];
     char output[OUT_BUFFER];
-    char curr;
+    char curr, all_alpha = 1;
     int word_pos = 0, buff_pos, out_pos = 0, cnt;
 
     //setvbuf(stdout, NULL, _IOFBF, 0);
@@ -56,11 +60,15 @@ int main () {
         for(buff_pos=0; buff_pos < cnt; buff_pos++){
             curr = buffer[buff_pos];
             if(curr == '\n' || curr == ' '){
-                out_pos += write_word(word, word_pos, &output[out_pos]);
+                out_pos += write_word(word, word_pos, &output[out_pos], all_alpha);
                 output[out_pos] = curr;
                 out_pos++;
                 word_pos = 0;
+                all_alpha = 1;
             } else {
+                if(!isalpha){
+                    all_alpha = 0;
+                }
                 word[word_pos] = curr;
                 word_pos++;
             }
