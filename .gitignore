@@ -25,3 +25,5 @@
 # CUDA stuffs
 *.ptx
 *.nvprof
+
+*/build/
