@@ -16,10 +16,10 @@ inline void gpuAssert(cudaError_t code, char *file, int line)
 
 uint32_t *d_result;
 uint32_t *result;
-uint32_t mask;
+uint8_t difficulty;
 
-int init_hasher(unsigned char difficulty){
-    mask = 0xffffffff << (32 - difficulty * 4);
+int init_hasher(unsigned char diff){
+    difficulty = diff;
 
     cudaMalloc(&d_result, sizeof(uint32_t));
     cudaMallocHost(&result, sizeof(uint32_t));
@@ -46,7 +46,7 @@ void* force_hash(hash_args *args){
     }
 
     cudaMemset(d_result, 0, sizeof(uint32_t));
-    gpuErrchk(copy_constants(words, &mask, &h_ctx));
+    gpuErrchk(copy_constants(words, &difficulty, &h_ctx));
 
     i = 0;
     while(!(*args->stop)){

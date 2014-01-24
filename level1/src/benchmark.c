@@ -22,11 +22,12 @@ int main(int argc, char **argv){
     hash_args args;
     char msg[BUFFER_LENGTH];
     unsigned char hash[SHA_DIGEST_LENGTH];
-    unsigned char difficulty = 6;
+    char hex_hash[SHA_DIGEST_LENGTH*2];
+    char hex_difficulty[SHA_DIGEST_LENGTH*2] = "00000008ffffffffffffffffffffffffffffffff";
+    unsigned char difficulty;
 
     struct timeval start, end, diff;
     unsigned long total = 0, curr;
-    int tmp;
 
     // Fill in some deterministic data
     for(i = 0; i < BUFFER_LENGTH; i++){
@@ -43,8 +44,11 @@ int main(int argc, char **argv){
     }
 
     if(argc > 2){
-        difficulty = atoi(argv[2]);
+        memcpy(hex_difficulty, argv[2], SHA_DIGEST_LENGTH*2);
     }
+
+    difficulty = parse_difficulty(hex_difficulty);
+    printf("Starting benchmark with difficulty %02x\n", difficulty);
 
     init_hasher(difficulty);
 
@@ -64,22 +68,21 @@ int main(int argc, char **argv){
         total += curr;
 
         SHA1(msg, COMMIT_LENGTH, hash);
-        tmp = __builtin_bswap32 (*((int*)hash));
 
-        if(tmp >> (32 - difficulty * 4)){
+        for(j=0; j < 20; j++){
+            sprintf(&hex_hash[j*2], "%02x", hash[j] & 0xff);
+        }
+
+        if(memcmp(hex_hash, hex_difficulty, SHA_DIGEST_LENGTH*2) > 0){
             printf("Msg:");
             for(j = 0; j < BUFFER_LENGTH; j++){
                 printf("%02x", msg[j] & 0xff);
             }
 
-            printf("\nBad hash! ");
-            for(j=0; j < 20; j++){
-                printf("%02x", hash[j]);
-            }
-            printf("\n");
+            printf("\nBad hash: %.40s\n", hex_hash);
             exit(1);
         } else {
-            printf("Successful run in %ld ms\n", curr);
+            printf("Successful run in %ld ms: %.40s\n", curr, hex_hash);
         }
 
         if(!args.found){
@@ -89,9 +92,9 @@ int main(int argc, char **argv){
         printf("\n");
     }
 
-    printf("\n%ld ms per iteration (%d iters, %d difficulty)\n",
+    printf("\n%ld ms per iteration (%d iters, %.40s difficulty)\n",
            total / iters,
-           iters, difficulty);
+           iters, hex_difficulty);
 
     free_hasher();
 

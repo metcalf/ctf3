@@ -42,4 +42,6 @@ void skip_point(timing_info *info);
 
 int pad_message(char *msg, unsigned int length, unsigned int buffer_length);
 
+char parse_difficulty(char *hex_difficulty);
+
 #endif

@@ -4,7 +4,7 @@
 
 __constant__ uint32_t c_block[16];
 __constant__ hash_digest_t c_ctx;
-__constant__ uint32_t c_mask;
+__constant__ uint8_t c_difficulty;
 
 __device__ __forceinline__ uint32_t f1(uint32_t b, uint32_t c, uint32_t d){
     return (b & c) | ((~b) & d);
@@ -952,7 +952,7 @@ shaforce(volatile uint32_t* result,
 
         res = computeSHA1Block(c_block, global_id, idx, &c_ctx);
 
-        if(!(res & c_mask)){
+        if(res < c_difficulty){
             // Add one so zero can signal not-found
             atomicMax((uint32_t*)result, global_id+1);
             break;
@@ -971,10 +971,10 @@ extern "C" void force_kernel(unsigned int *d_result,
 }
 
 extern "C" cudaError_t copy_constants(uint32_t *h_block,
-                                      uint32_t *h_mask,
+                                      uint8_t *h_difficulty,
                                       hash_digest_t *h_ctx){
     return (cudaError_t)(
         cudaMemcpyToSymbol(c_block, h_block, sizeof(uint32_t) * 16) |
-        cudaMemcpyToSymbol(c_mask, h_mask, sizeof(uint32_t)) |
+        cudaMemcpyToSymbol(c_difficulty, h_difficulty, sizeof(uint8_t)) |
         cudaMemcpyToSymbol(c_ctx, h_ctx, sizeof(hash_digest_t)));
 }

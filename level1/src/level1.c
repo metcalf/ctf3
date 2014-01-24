@@ -218,57 +218,38 @@ static int push_result_shell(git_oid *commit, git_remote *remote){
 }
 
 static void* check_updates_worker(void* arg){
-    git_remote *remote;
-
-    git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
-    callbacks.credentials = cred_acquire_cb;
-
-    check_lg2(git_remote_load(&remote, repo, "origin"),
-              "Error opening remote", NULL);
-    check_lg2(git_remote_set_callbacks(remote, &callbacks),
-              "Error setting credential callback", NULL);
-
     timing_info timing;
     reset_timing(&timing);
 
     while(!stop){
         start_timing(&timing);
 
-        if(!git_remote_connected(remote)){
-            if(git_remote_connect(remote, GIT_DIRECTION_PUSH)){
-                puts("Looks like a new game");
-
-                pthread_mutex_lock(&update_mutex);
-
-                fetch_updates();
-                updated = 1;
-
-                pthread_mutex_unlock(&update_mutex);
-            }
-            time_point(&timing);
-        } else {
-            skip_point(&timing);
-        }
         if(!updated && push_commit){
-            pthread_mutex_lock(&commit_mutex);
+            if(push_commit){
+                pthread_mutex_lock(&commit_mutex);
 
-            if(push_result_shell(push_commit, remote)){
-                puts("Failed to push coin, reseting.");
+                if(push_result_shell(push_commit, NULL)){
+                    puts("Failed to push coin, reseting.");
 
-                pthread_mutex_lock(&update_mutex);
+                    pthread_mutex_lock(&update_mutex);
 
-                fetch_updates();
-                reset_hard();
-                updated = 1;
+                    fetch_updates();
+                    updated = 1;
 
-                pthread_mutex_unlock(&update_mutex);
+                    pthread_mutex_unlock(&update_mutex);
+                } else {
+                    puts("Earned it!");
+                }
+                push_commit = NULL;
+
+                pthread_mutex_unlock(&commit_mutex);
             } else {
-                puts("Earned it!");
+                if(check_updates()){
+                    pthread_mutex_lock(&update_mutex);
+                    updated = 1;
+                    pthread_mutex_unlock(&update_mutex);
+                }
             }
-            push_commit = NULL;
-
-            pthread_mutex_unlock(&commit_mutex);
-
             time_point(&timing);
             print_timing(&timing);
         } else {
@@ -276,8 +257,6 @@ static void* check_updates_worker(void* arg){
             usleep(10);
         }
     }
-
-    git_remote_free(remote);
 
     puts("Update thread ending");
 
@@ -308,16 +287,11 @@ static void commit_result(char* msg, git_oid *commit){
 static unsigned char init_args(hash_args *args){
     FILE *fp;
     unsigned char difficulty;
+    char hex_difficulty[SHA_DIGEST_LENGTH*2];
 
     fp = fopen("difficulty.txt", "r");
-    fscanf(fp, "%hhd", &difficulty);
-
-    if(difficulty > 8){
-        printf("Difficulty is greater than 8: %u\n", difficulty);
-        exit(1);
-    } else {
-        printf("Difficulty is %u\n", difficulty);
-    }
+    fscanf(fp, "%40c", &hex_difficulty);
+    difficulty = parse_difficulty(hex_difficulty);
 
     args->msg = malloc(BUFFER_LENGTH);
     args->stop = &updated;
@@ -373,12 +347,15 @@ int main (int argc, char **argv) {
 
         time_point(&timing);
 
+        pthread_mutex_lock(&commit_mutex);
         pthread_mutex_lock(&update_mutex);
         if(updated){
             reset_hard();
             updated = 0;
+            push_commit = NULL;
         }
         pthread_mutex_unlock(&update_mutex);
+        pthread_mutex_unlock(&commit_mutex);
 
         time_point(&timing);
 

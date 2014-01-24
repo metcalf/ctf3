@@ -25,7 +25,7 @@ extern "C" {
 void force_kernel(uint32_t *d_result, const uint32_t idx);
 
 cudaError_t copy_constants(uint32_t *h_block,
-                               uint32_t *h_mask,
+                               uint8_t *h_difficulty,
                                hash_digest_t *h_ctx);
 
 #endif

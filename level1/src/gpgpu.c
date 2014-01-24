@@ -29,7 +29,7 @@ cl_program       program;
 cl_kernel        kernel;
 cl_bool          little_endian;
 
-cl_uint mask;
+cl_uint8 difficulty;
 
 static int create_program_from_bitcode(){
   cl_int err;
@@ -120,9 +120,8 @@ static int init_opencl() {
   return err;
 }
 
-int init_hasher(unsigned char difficulty){
-    // Backwards because we're little endian
-    mask = 0xffffffff << (32 - difficulty * 4);
+int init_hasher(unsigned char diff){
+    difficulty = (cl_uint8) diff;
 
     return init_opencl() | create_program_from_bitcode();
 }
@@ -146,8 +145,8 @@ void* force_hash(hash_args *args){
                                       sizeof(cl_uint)*16, words, &err);
     cl_mem result_mem = clCreateBuffer(context, CL_MEM_COPY_HOST_PTR,
                                    sizeof(cl_uint), &result, &err);
-    cl_mem mask_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                     sizeof(cl_uint), &mask, &err);
+    cl_mem difficulty_mem = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                           sizeof(cl_uint8), &difficulty, &err);
 
     if(err || block_mem == NULL || result_mem == NULL){
         printf("Unable to create OpenCL buffer memory objects: %d\n", err);
@@ -166,7 +165,7 @@ void* force_hash(hash_args *args){
         return NULL;
     }
 
-    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), &mask_mem);
+    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), &difficulty_mem);
     if(err){
         printf("Error setting kernel argument 2: %d\n", err);
         return NULL;

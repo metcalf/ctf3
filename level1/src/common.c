@@ -80,3 +80,17 @@ int pad_message(char *msg, unsigned int length, unsigned int buffer_length){
 
     return 0;
 }
+
+char parse_difficulty(char *hex_difficulty){
+    char result;
+
+    if(strncmp(hex_difficulty, "000000", 6) > 0 ||
+       strcmp(hex_difficulty, "00000000") <= 0){
+        printf("Error, difficulty did not start with 6 zeros! %.40s\n", hex_difficulty);
+        exit(1);
+    }
+
+    sscanf(&hex_difficulty[6], "%02x", &result);
+
+    return result;
+}
