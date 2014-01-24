@@ -5,7 +5,7 @@
 
 #include "common.h"
 
-#define SM_COUNT 2
+#define SM_COUNT 8
 #define BLOCKS_PER_SM 8
 #define THREADS_PER_BLOCK 2048 / BLOCKS_PER_SM
 #define BLOCKS_PER_GRID SM_COUNT * BLOCKS_PER_SM

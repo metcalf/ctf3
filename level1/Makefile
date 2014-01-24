@@ -27,6 +27,7 @@ BITCODE += ${CL_SRCS:.cl=.gpu32.bc}
 all: build/level1 build/benchmark $(BITCODE) $(OBJS)
 
 build/%: $(OBJS) src/%.o
+	mkdir -p build
 	$(CC) $(CFLAGS) $(INCLUDES) $(LIBS) $^ -o $@
 
 %.o: %.c
