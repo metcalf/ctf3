@@ -4,7 +4,7 @@ NVCCFLAGS = -gencode arch=compute_30,code=\"sm_30,compute_30\" -Xptxas="-v" -O3
 CC=gcc
 CFLAGS = -Wall -O3 -mtune=native -DIMPL_CUDA
 INCLUDES = -I../libgit2/include -Isrc/ -I/usr/local/cuda/include -I/opt/nvidia/cuda/include
-LIBS = -L/usr/local/cuda/lib -L../libgit2-development/build -L/opt/nvidia/cuda/lib64 -lgit2 -lcrypto -lssl -lcuda -lcudart
+LIBS = -L/usr/local/cuda/lib -L../libgit2-development/build -L/opt/nvidia/cuda/lib64 -L/lib64/ -lgit2 -lcrypto -lssl -lcuda -lcudart -lpthread
 
 SRCS = src/cuda.c src/common.c
 CU_SRCS = src/sha1.cu
