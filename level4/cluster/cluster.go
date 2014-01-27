@@ -142,7 +142,8 @@ func (c *Cluster) Join(leader string) error {
 
 	var b bytes.Buffer
 	json.NewEncoder(&b).Encode(command)
-	_, err := c.client.SafePost(fmt.Sprintf("http://%s", leader), "/join", &b)
+	leaderPath, _ := transport.Encode(leader)
+	_, err := c.client.SafePost(leaderPath, "/join", &b)
 	if err != nil {
 		return err
 	}
