@@ -136,10 +136,11 @@ func (c *Cluster) Join(leader string) error {
 	var b bytes.Buffer
 	json.NewEncoder(&b).Encode(command)
 	resp, err := http.Post(fmt.Sprintf("http://%s/join", leader), "application/json", &b)
-	resp.Body.Close()
 	if err != nil {
 		return err
 	}
+
+	resp.Body.Close()
 
 	return nil
 }
