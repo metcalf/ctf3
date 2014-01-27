@@ -34,6 +34,7 @@ type Cluster struct {
 	raftServer raft.Server
 	router     *mux.Router
 	context    interface{}
+	client     *transport.Client
 }
 
 func New(path string, listen string, handler RequestHandler, context interface{}) (*Cluster, error) {
@@ -43,6 +44,7 @@ func New(path string, listen string, handler RequestHandler, context interface{}
 		handler: handler,
 		router:  mux.NewRouter(),
 		context: context,
+		client:  transport.NewClient(),
 	}
 
 	// Read existing name or generate a new one.
@@ -67,6 +69,11 @@ func (c *Cluster) ListenAndServe(leader string) error {
 
 	// Initialize and start Raft server.
 	transporter := raft.NewHTTPTransporter("/raft")
+	transporter.Transport = &http.Transport{
+		DisableKeepAlives: false,
+		Dial:              transport.UnixDialer,
+	}
+
 	c.raftServer, err = raft.NewServer(c.name, c.path, transporter, nil, c.context, "")
 	if err != nil {
 		return err
@@ -135,12 +142,10 @@ func (c *Cluster) Join(leader string) error {
 
 	var b bytes.Buffer
 	json.NewEncoder(&b).Encode(command)
-	resp, err := http.Post(fmt.Sprintf("http://%s/join", leader), "application/json", &b)
+	_, err := c.client.SafePost(fmt.Sprintf("http://%s", leader), "/join", &b)
 	if err != nil {
 		return err
 	}
-
-	resp.Body.Close()
 
 	return nil
 }
