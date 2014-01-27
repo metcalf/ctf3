@@ -3,20 +3,21 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/narced133/ctf3/level4/cluster"
-	"github.com/narced133/ctf3/level4/debuglog"
-	"github.com/narced133/ctf3/level4/server"
+	"github.com/goraft/raft"
+	"github.com/metcalf/ctf3/level4/cluster"
+	"github.com/metcalf/ctf3/level4/debuglog"
+	"github.com/metcalf/ctf3/level4/server"
 	"log"
 	"os"
 	"path/filepath"
 )
 
 func main() {
-	var verbose bool
+	var verbose int
 	var listen, join, directory string
 	var err error
 
-	flag.BoolVar(&verbose, "v", false, "Enable debug output")
+	flag.IntVar(&verbose, "v", 0, "Enable debug output")
 	flag.StringVar(&listen, "l", "127.0.0.1:4000", "Socket to listen on (Unix or TCP)")
 	flag.StringVar(&join, "join", "", "Cluster to join")
 	flag.StringVar(&directory, "d", "/tmp/sqlcluster", "Storage directory")
@@ -60,7 +61,8 @@ OPTIONS:
 		os.Exit(1)
 	}
 
-	debuglog.SetVerbose(verbose)
+	debuglog.SetVerbose(verbose > 0)
+	raft.SetLogLevel(verbose)
 
 	if err := os.MkdirAll(directory, os.ModeDir|0755); err != nil {
 		log.Fatalf("Error while creating storage directory: %s\n", err)
@@ -77,7 +79,7 @@ OPTIONS:
 		log.Fatal(err)
 	}
 
-	c, err := cluster.New(directory, listen, s.ListenAndServe)
+	c, err := cluster.New(directory, listen, s.ListenAndServe, s)
 	if err != nil {
 		log.Fatal(err)
 	}

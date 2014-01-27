@@ -3,8 +3,9 @@ package server
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/narced133/ctf3/level4/cluster"
-	"github.com/narced133/ctf3/level4/debuglog"
+	"github.com/metcalf/ctf3/level4/cluster"
+	"github.com/metcalf/ctf3/level4/db"
+	"github.com/metcalf/ctf3/level4/debuglog"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,34 +14,29 @@ import (
 	"strings"
 )
 
-const rowCount = 4
-
 // Create a cluster or join it (passing the master)
 // New(request_chan, update_chan, <join addr>)
 
 type Server struct {
-	rowNames [rowCount]string
-	do       cluster.CommandHandler
-}
-
-type Row struct {
-	name         string
-	friendCount  uint8
-	requestCount uint16
-	favoriteWord string
+	do cluster.CommandHandler
+	db *db.DB
 }
 
 func New() (*Server, error) {
-	return &Server{}, nil
+	return &Server{
+		db: db.New(),
+	}, nil
 }
 
-// TODO: This shouldn't know about the cluster, just a callback to send
-// messages into the cluster
 func (s *Server) ListenAndServe(do cluster.CommandHandler, mux *mux.Router) error {
 	s.do = do
 	mux.HandleFunc("/sql", s.sqlHandler).Methods("POST")
 
 	return nil
+}
+
+func (s *Server) DB() *db.DB {
+	return s.db
 }
 
 var updateMatcher *regexp.Regexp = regexp.MustCompile(
@@ -79,18 +75,14 @@ func (s *Server) sqlHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) insertHandler(w http.ResponseWriter, names []string) {
-	if len(names) != rowCount {
-		log.Fatalf("Got %d names but only expect %d!", len(names), rowCount)
-	}
-
-	for i, name := range names {
-		s.rowNames[i] = name
+	if err := s.db.SetNames(names); err != nil {
+		log.Fatal(err)
 	}
 }
 
 func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, word string) {
 	rowId := func() int {
-		for i, rName := range s.rowNames {
+		for i, rName := range s.db.RowNames() {
 			if rName == name {
 				return i
 			}
@@ -100,57 +92,44 @@ func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, wo
 
 	if rowId < 0 {
 		err := fmt.Sprintf("Could not find name %s.  I only know about %s.",
-			name, strings.Join(s.rowNames[:], ", "))
+			name, strings.Join(s.db.RowNames()[:], ", "))
 
 		log.Print(err)
 		http.Error(w, err, http.StatusBadRequest)
 		return
 	}
 
-	action := &Action{
-		rowId:        uint32(rowId),
-		inc:          inc,
-		favoriteWord: word,
-	}
+	action := db.NewAction(uint32(rowId), inc, word)
 
-	actions, err := s.do(Action)
+	action.DebugLog("Applying")
+
+	index, err := s.do(action)
 	if err != nil {
 		log.Print(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var responseData [rowCount]*Row
-	var responseLines [rowCount]string
+	response, ok := <-s.db.GetWhenReady(index)
 
-	for i, name := range s.rowNames {
-		responseData[i] = &Row{
-			name:         name,
-			friendCount:  0,
-			requestCount: 0,
-			favoriteWord: "",
-		}
+	if !ok {
+		log.Fatal("Error receiving on DB channel")
+	}
+	if err := response.Error; err != nil {
+		log.Print(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// TODO: Abstract the encoding and decoding
-	for action := range actions {
-		row := responseData[action.rowId]
-
-		row.friendCount += action.inc
-		row.requestCount += 1
-		row.favoriteWord = action.favoriteWord
-	}
-
-	for i, row := range responseData {
-		responseLines[i] = fmt.Sprintf("%s|%d|%d|%s",
-			row.name,
-			row.friendCount,
-			row.requestCount,
-			row.favoriteWord)
+	var responseLines []string
+	var seq uint16 = 0
+	for _, row := range response.Data {
+		responseLines = append(responseLines, row.Format())
+		seq += row.RequestCount()
 	}
 
 	resp := fmt.Sprintf("SequenceNumber: %d\n%s",
-		commit.Index(), strings.Join(responseLines[:], "\n"))
+		seq, strings.Join(responseLines[:], "\n"))
 
 	w.Write([]byte(resp))
 }
