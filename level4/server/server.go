@@ -132,4 +132,5 @@ func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, wo
 		index, strings.Join(responseLines[:], "\n"))
 
 	w.Write([]byte(resp))
+	debuglog.Debugf("Responded with %s", resp)
 }

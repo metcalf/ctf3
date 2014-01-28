@@ -18,7 +18,7 @@ func main() {
 	var verbose int
 	var listen, join, directory string
 
-	flag.IntVar(&verbose, "v", 2, "Enable debug output")
+	flag.IntVar(&verbose, "v", 1, "Enable debug output")
 	flag.StringVar(&listen, "l", "127.0.0.1:4000", "Socket to listen on (Unix or TCP)")
 	flag.StringVar(&join, "join", "", "Cluster to join")
 	flag.StringVar(&directory, "d", "/tmp/sqlcluster", "Storage directory")
