@@ -3,11 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/goraft/raft"
 	"github.com/metcalf/ctf3/level4/cluster"
 	"github.com/metcalf/ctf3/level4/db"
 	"github.com/metcalf/ctf3/level4/debuglog"
 	"github.com/metcalf/ctf3/level4/server"
+	"github.com/metcalf/raft"
 	"log"
 	"os"
 	"os/signal"

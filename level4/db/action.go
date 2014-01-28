@@ -2,8 +2,8 @@ package db
 
 import (
 	"encoding/binary"
-	"github.com/goraft/raft"
 	"github.com/metcalf/ctf3/level4/debuglog"
+	"github.com/metcalf/raft"
 	"io"
 )
 

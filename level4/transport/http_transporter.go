@@ -3,8 +3,8 @@ package transport
 import (
 	"bytes"
 	"fmt"
-	"github.com/goraft/raft"
 	"github.com/metcalf/ctf3/level4/debuglog"
+	"github.com/metcalf/raft"
 	"io"
 	"net/http"
 	"net/url"
