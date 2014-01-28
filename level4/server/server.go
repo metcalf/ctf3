@@ -128,8 +128,13 @@ func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, wo
 		responseLines = append(responseLines, row.Format())
 	}
 
-	resp := fmt.Sprintf("SequenceNumber: %d\n%s",
-		index, strings.Join(responseLines[:], "\n"))
+	var resp string
+	if inc > 0 { // Update
+		resp = fmt.Sprintf("SequenceNumber: %d\n%s",
+			index-1, strings.Join(responseLines[:], "\n"))
+	} else { // Insert
+		resp = fmt.Sprintf("SequenceNumber: %d\n", index-1)
+	}
 
 	w.Write([]byte(resp))
 	debuglog.Debugf("Responded with %s", resp)
