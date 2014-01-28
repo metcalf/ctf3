@@ -10,6 +10,7 @@ import (
 	"github.com/metcalf/ctf3/level4/db"
 	"github.com/metcalf/ctf3/level4/debuglog"
 	"github.com/metcalf/ctf3/level4/transport"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -148,14 +149,19 @@ func (c *Cluster) Join(leader string) error {
 		return err
 	}
 
+	debuglog.Debugf("Sending join command with contents: %s", b.Bytes())
 	for {
 		_, err := c.client.SafePost(cs, "/join", &b)
+
 		if err != nil {
 			log.Printf("Unable to join cluster: %s", err)
 			time.Sleep(1 * time.Second)
-			continue
+		} else {
+			break
 		}
 	}
+
+	return nil
 }
 
 func (c *Cluster) connectionString() string {
@@ -172,11 +178,15 @@ func (c *Cluster) joinHandler(w http.ResponseWriter, req *http.Request) {
 
 	command := &raft.DefaultJoinCommand{}
 
-	if err := json.NewDecoder(req.Body).Decode(&command); err != nil {
+	err := json.NewDecoder(req.Body).Decode(&command)
+	if err != nil && err != io.EOF {
+		log.Printf("Could not decode join command: %s", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	if _, err := c.raftServer.Do(command); err != nil {
+		log.Printf("Could not execute join command: %s", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

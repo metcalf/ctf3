@@ -9,13 +9,14 @@ import (
 	"github.com/metcalf/ctf3/level4/server"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 )
 
 func main() {
 	var verbose int
 	var listen, join, directory string
-	var err error
 
 	flag.IntVar(&verbose, "v", 0, "Enable debug output")
 	flag.StringVar(&listen, "l", "127.0.0.1:4000", "Socket to listen on (Unix or TCP)")
@@ -68,23 +69,29 @@ OPTIONS:
 		log.Fatalf("Error while creating storage directory: %s\n", err)
 	}
 
+	log.Printf("Changing directory to %s", directory)
 	if err := os.Chdir(directory); err != nil {
 		log.Fatalf("Error while changing to storage directory: %s\n", err)
 	}
 
-	log.Printf("Changing directory to %s", directory)
+	go func() {
+		s, err := server.New()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	s, err := server.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+		c, err := cluster.New(directory, listen, s.ListenAndServe, s)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	c, err := cluster.New(directory, listen, s.ListenAndServe, s)
-	if err != nil {
-		log.Fatal(err)
-	}
+		if err := c.ListenAndServe(join); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
-	if err := c.ListenAndServe(join); err != nil {
-		log.Fatal(err)
-	}
+	// Exit cleanly
+	sigchan := make(chan os.Signal)
+	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigchan
 }
