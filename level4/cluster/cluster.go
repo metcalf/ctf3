@@ -210,7 +210,7 @@ func (c *Cluster) Do(cmd EncodableCommand) (int, error) {
 	case raft.Leader:
 		debuglog.Debugln("I'm the leader, executing action locally")
 		index, err := c.raftServer.Do(cmd)
-		if err {
+		if err != nil {
 			return 0, err
 		} else {
 			return index.(int), err
