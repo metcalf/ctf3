@@ -2,6 +2,7 @@ package transport
 
 import (
 	"errors"
+	"github.com/metcalf/ctf3/level4/debuglog"
 	"net"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 var unix *regexp.Regexp = regexp.MustCompile("^[/a-zA-Z0-9\\.]*$")
 
 func UnixDialer(_, encoded string) (net.Conn, error) {
+	debuglog.Debugf("Dialing %s", encoded)
 	decoded := Decode(encoded)
 	return net.Dial(Network(decoded), decoded)
 }
