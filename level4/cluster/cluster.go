@@ -211,17 +211,15 @@ func (c *Cluster) Do(cmd EncodableCommand) (int, error) {
 				c.raftServer.Leader())
 		}
 
-		resp, err := http.Post(
-			fmt.Sprintf("%s/do/%s", leader.ConnectionString, cmd.CommandName()),
-			"application/octet-stream",
+		resp, err := c.client.SafePost(
+			leader.ConnectionString,
+			fmt.Sprintf("/do/%s", cmd.CommandName()),
 			&cmdBuf)
 		if err != nil {
 			return 0, err
 		}
 
-		defer resp.Body.Close()
-
-		if err := binary.Read(resp.Body, binary.BigEndian, &index); err != nil {
+		if err := binary.Read(resp, binary.BigEndian, &index); err != nil {
 			return 0, err
 		}
 
