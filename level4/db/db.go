@@ -2,7 +2,6 @@ package db
 
 import (
 	"fmt"
-	"github.com/goraft/raft"
 	"github.com/metcalf/ctf3/level4/debuglog"
 	"sync"
 )
@@ -26,9 +25,6 @@ type DB struct {
 }
 
 func New() *DB {
-	// Setup commands.
-	raft.RegisterCommand(&Action{})
-
 	db := &DB{
 		rowNames: [rowCount]string{"siddarth", "gdb", "christian", "andy", "carl"},
 	}

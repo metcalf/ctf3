@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/goraft/raft"
 	"github.com/metcalf/ctf3/level4/cluster"
+	"github.com/metcalf/ctf3/level4/db"
 	"github.com/metcalf/ctf3/level4/debuglog"
 	"github.com/metcalf/ctf3/level4/server"
 	"log"
@@ -74,6 +75,27 @@ OPTIONS:
 		log.Fatalf("Error while changing to storage directory: %s\n", err)
 	}
 
+	// Setup commands.
+	raft.RegisterCommand(&db.Action{})
+
+	for {
+		run(directory, listen, join)
+	}
+
+	// Exit cleanly
+	sigchan := make(chan os.Signal)
+	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigchan
+}
+
+func run(directory string, listen string, join string) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in run", r)
+		}
+	}()
+
+	ch := make(chan error)
 	go func() {
 		s, err := server.New()
 		if err != nil {
@@ -88,10 +110,9 @@ OPTIONS:
 		if err := c.ListenAndServe(join); err != nil {
 			log.Fatal(err)
 		}
+
+		ch <- nil
 	}()
 
-	// Exit cleanly
-	sigchan := make(chan os.Signal)
-	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigchan
+	<-ch
 }
