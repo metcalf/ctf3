@@ -130,7 +130,7 @@ func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, wo
 
 	var resp string
 	if inc > 0 { // Update
-		resp = fmt.Sprintf("SequenceNumber: %d\n%s",
+		resp = fmt.Sprintf("SequenceNumber: %d\n%s\n",
 			index-1, strings.Join(responseLines[:], "\n"))
 	} else { // Insert
 		resp = fmt.Sprintf("SequenceNumber: %d\n", index-1)
