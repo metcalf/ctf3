@@ -123,7 +123,7 @@ func (t *HTTPTransporter) SendAppendEntriesRequest(server raft.Server, peer *raf
 	}
 
 	url := joinPath(peer.ConnectionString, t.AppendEntriesPath())
-	debuglog.Debugln(server.Name(), "POST", url)
+	debuglog.Debugln(server.Name(), "->", peer.Name, "POST", url)
 
 	t.Transport.ResponseHeaderTimeout = server.ElectionTimeout()
 	httpResp, err := t.httpClient.Post(url, "application/protobuf", &b)
