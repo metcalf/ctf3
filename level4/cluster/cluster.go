@@ -174,7 +174,7 @@ func (c *Cluster) connectionString() string {
 }
 
 func (c *Cluster) joinHandler(w http.ResponseWriter, req *http.Request) {
-	debuglog.Debugln("Received join request")
+	debuglog.Debugf("Received join request (I am %s)", c.raftServer.State())
 
 	command := &raft.DefaultJoinCommand{}
 
@@ -190,6 +190,7 @@ func (c *Cluster) joinHandler(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	debuglog.Debugf("Processes join request from %s", command.ConnectionString)
 }
 
 func (c *Cluster) Do(cmd EncodableCommand) (int, error) {
