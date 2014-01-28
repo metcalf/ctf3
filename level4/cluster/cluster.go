@@ -10,6 +10,7 @@ import (
 	"github.com/metcalf/ctf3/level4/db"
 	"github.com/metcalf/ctf3/level4/debuglog"
 	"github.com/metcalf/ctf3/level4/transport"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -173,9 +174,16 @@ func (c *Cluster) joinHandler(w http.ResponseWriter, req *http.Request) {
 	command := &raft.DefaultJoinCommand{}
 
 	err := json.NewDecoder(req.Body).Decode(&command)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		log.Printf("Could not decode join command: %s", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if command.ConnectionString == "" {
+		cErr := fmt.Errorf("Join request with empty connection string.  JSON err was: %s", err)
+		log.Print(cErr)
+		http.Error(w, cErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
