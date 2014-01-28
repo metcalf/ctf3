@@ -65,6 +65,7 @@ func (s *Server) sqlHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	} else if matches := insertMatcher.FindStringSubmatch(query); matches != nil {
 		debuglog.Debugf("Handling insert query: %s", query)
+		return
 
 		s.insertHandler(w, strings.Split(matches[1], "\"), (\""))
 	} else {
