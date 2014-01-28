@@ -78,6 +78,25 @@ func (c *Cluster) ListenAndServe(leader string) error {
 	transporter.Install(c.raftServer, c)
 	c.raftServer.Start()
 
+	// Initialize and start HTTP server.
+	httpServer := &http.Server{
+		Handler: c.router,
+	}
+
+	c.router.HandleFunc("/join", c.joinHandler).Methods("POST")
+	c.router.HandleFunc("/do/{command}", c.doHandler).Methods("POST")
+
+	// Start Unix transport
+	l, err := transport.Listen(c.listen)
+	if err != nil {
+		return err
+	}
+
+	ch := make(chan error)
+	go func() {
+		ch <- httpServer.Serve(l)
+	}()
+
 	if !c.raftServer.IsLogEmpty() {
 		log.Println("Recovered from log")
 	} else if leader != "" {
@@ -104,24 +123,9 @@ func (c *Cluster) ListenAndServe(leader string) error {
 	}
 
 	log.Println("Initializing HTTP server")
-
-	// Initialize and start HTTP server.
-	httpServer := &http.Server{
-		Handler: c.router,
-	}
-
-	c.router.HandleFunc("/join", c.joinHandler).Methods("POST")
-	c.router.HandleFunc("/do/{command}", c.doHandler).Methods("POST")
-
 	c.handler(c.Do, c.router)
 
-	// Start Unix transport
-	l, err := transport.Listen(c.listen)
-	if err != nil {
-		return err
-	}
-
-	return httpServer.Serve(l)
+	return <-ch
 }
 
 // This is a hack around Gorilla mux not providing the correct net/http
@@ -145,15 +149,26 @@ func (c *Cluster) Join(leader string) error {
 		return err
 	}
 
-	debuglog.Debugf("Sending join command with contents: %s", b.Bytes())
+	log.Printf("Sending join command with contents: %s", b.Bytes())
 	for {
 		_, err := c.client.SafePost(cs, "/join", &b)
 
 		if err != nil {
 			log.Printf("Unable to join cluster: %s", err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 		} else {
 			break
+		}
+	}
+
+	log.Printf("Joined %s waiting for leader election", leader)
+	for {
+		if leaderName := c.raftServer.Leader(); leaderName == "" {
+			log.Printf("Waiting for leader")
+			time.Sleep(500 * time.Millisecond)
+		} else {
+			break
+			log.Printf("Leader is %s", leaderName)
 		}
 	}
 
