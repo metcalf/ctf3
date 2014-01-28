@@ -53,8 +53,7 @@ func NewHTTPTransporter(prefix string) *HTTPTransporter {
 		snapshotPath:         joinPath(prefix, "/snapshot"),
 		snapshotRecoveryPath: joinPath(prefix, "/snapshotRecovery"),
 		Transport: &http.Transport{
-			DisableKeepAlives: false,
-			Dial:              UnixDialer,
+			Dial: UnixDialer,
 		},
 	}
 	t.httpClient.Transport = t.Transport

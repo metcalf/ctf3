@@ -210,7 +210,11 @@ func (c *Cluster) Do(cmd EncodableCommand) (int, error) {
 	case raft.Leader:
 		debuglog.Debugln("I'm the leader, executing action locally")
 		index, err := c.raftServer.Do(cmd)
-		return index.(int), err
+		if err {
+			return 0, err
+		} else {
+			return index.(int), err
+		}
 	default:
 		if c.raftServer.Leader() == "" {
 			return 0, fmt.Errorf("No leader elected")
