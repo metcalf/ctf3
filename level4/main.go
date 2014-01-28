@@ -63,7 +63,7 @@ OPTIONS:
 	}
 
 	debuglog.SetVerbose(verbose > 0)
-	raft.SetLogLevel(verbose)
+	raft.SetLogLevel(verbose - 1)
 
 	if err := os.MkdirAll(directory, os.ModeDir|0755); err != nil {
 		log.Fatalf("Error while creating storage directory: %s\n", err)
