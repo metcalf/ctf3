@@ -196,6 +196,7 @@ func (c *Cluster) joinHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	debuglog.Debugf("Processing join request from %s", command.ConnectionString)
 	if _, err := c.raftServer.Do(command); err != nil {
 		log.Printf("Could not execute join command: %s", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
