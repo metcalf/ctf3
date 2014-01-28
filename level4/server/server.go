@@ -65,9 +65,10 @@ func (s *Server) sqlHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	} else if matches := insertMatcher.FindStringSubmatch(query); matches != nil {
 		debuglog.Debugf("Handling insert query: %s", query)
-		return
 
-		s.insertHandler(w, strings.Split(matches[1], "\"), (\""))
+		s.updateHandler(w, "gdb", 0, "")
+		return
+		// s.insertHandler(w, strings.Split(matches[1], "\"), (\""))
 	} else {
 		err := fmt.Errorf("Body did not match any query formats.  Body was:\n%s", query)
 		log.Printf(err.Error())
@@ -123,14 +124,12 @@ func (s *Server) updateHandler(w http.ResponseWriter, name string, inc uint8, wo
 	}
 
 	var responseLines []string
-	var seq uint16 = 0
 	for _, row := range response.Data {
 		responseLines = append(responseLines, row.Format())
-		seq += row.RequestCount()
 	}
 
 	resp := fmt.Sprintf("SequenceNumber: %d\n%s",
-		seq, strings.Join(responseLines[:], "\n"))
+		index, strings.Join(responseLines[:], "\n"))
 
 	w.Write([]byte(resp))
 }

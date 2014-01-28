@@ -79,7 +79,9 @@ func (db *DB) Get(index int) []*Row {
 		row := responseData[action.rowId]
 
 		row.friendCount += action.inc
-		row.requestCount += 1
+		if action.inc > 0 {
+			row.requestCount += 1
+		}
 		row.favoriteWord = action.favoriteWord
 	}
 
