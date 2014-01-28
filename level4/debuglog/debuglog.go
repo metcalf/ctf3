@@ -29,9 +29,9 @@ func SetVerbose(verbose bool) {
 	std.verbose = verbose
 }
 
-func Debugln(msg string) {
+func Debugln(v ...interface{}) {
 	if std.verbose {
-		std.Println(msg)
+		std.Println(v...)
 	}
 }
 

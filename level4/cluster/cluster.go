@@ -69,11 +69,7 @@ func (c *Cluster) ListenAndServe(leader string) error {
 	log.Printf("Initializing Raft Server: %s", c.path)
 
 	// Initialize and start Raft server.
-	transporter := raft.NewHTTPTransporter("/raft")
-	transporter.Transport = &http.Transport{
-		DisableKeepAlives: false,
-		Dial:              transport.UnixDialer,
-	}
+	transporter := transport.NewHTTPTransporter("/raft")
 
 	c.raftServer, err = raft.NewServer(c.name, c.path, transporter, nil, c.context, "")
 	if err != nil {
