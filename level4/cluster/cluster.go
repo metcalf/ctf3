@@ -78,25 +78,6 @@ func (c *Cluster) ListenAndServe(leader string) error {
 	transporter.Install(c.raftServer, c)
 	c.raftServer.Start()
 
-	// Initialize and start HTTP server.
-	httpServer := &http.Server{
-		Handler: c.router,
-	}
-
-	c.router.HandleFunc("/join", c.joinHandler).Methods("POST")
-	c.router.HandleFunc("/do/{command}", c.doHandler).Methods("POST")
-
-	// Start Unix transport
-	l, err := transport.Listen(c.listen)
-	if err != nil {
-		return err
-	}
-
-	ch := make(chan error)
-	go func() {
-		ch <- httpServer.Serve(l)
-	}()
-
 	if !c.raftServer.IsLogEmpty() {
 		log.Println("Recovered from log")
 	} else if leader != "" {
@@ -122,10 +103,24 @@ func (c *Cluster) ListenAndServe(leader string) error {
 
 	}
 
+	// Initialize and start HTTP server.
+	httpServer := &http.Server{
+		Handler: c.router,
+	}
+
+	c.router.HandleFunc("/join", c.joinHandler).Methods("POST")
+	c.router.HandleFunc("/do/{command}", c.doHandler).Methods("POST")
+
+	// Start Unix transport
+	l, err := transport.Listen(c.listen)
+	if err != nil {
+		return err
+	}
+
 	log.Println("Initializing HTTP server")
 	c.handler(c.Do, c.router)
 
-	return <-ch
+	return httpServer.Serve(l)
 }
 
 // This is a hack around Gorilla mux not providing the correct net/http
@@ -158,17 +153,6 @@ func (c *Cluster) Join(leader string) error {
 			time.Sleep(500 * time.Millisecond)
 		} else {
 			break
-		}
-	}
-
-	log.Printf("Joined %s waiting for leader election", leader)
-	for {
-		if leaderName := c.raftServer.Leader(); leaderName == "" {
-			log.Printf("Waiting for leader")
-			time.Sleep(500 * time.Millisecond)
-		} else {
-			break
-			log.Printf("Leader is %s", leaderName)
 		}
 	}
 
@@ -216,6 +200,9 @@ func (c *Cluster) Do(cmd EncodableCommand) (int, error) {
 		index, err := c.raftServer.Do(cmd)
 		return index.(int), err
 	default:
+		if c.raftServer.Leader() == "" {
+			return 0, fmt.Errorf("No leader elected")
+		}
 		debuglog.Debugf("Forwarding Action to the leader (in state %s): %s",
 			c.raftServer.State(), c.raftServer.Leader())
 		var cmdBuf bytes.Buffer
