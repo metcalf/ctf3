@@ -78,9 +78,11 @@ OPTIONS:
 	// Setup commands.
 	raft.RegisterCommand(&db.Action{})
 
-	for {
-		run(directory, listen, join)
-	}
+	go func() {
+		for {
+			run(directory, listen, join)
+		}
+	}()
 
 	// Exit cleanly
 	sigchan := make(chan os.Signal)
@@ -95,24 +97,17 @@ func run(directory string, listen string, join string) {
 		}
 	}()
 
-	ch := make(chan error)
-	go func() {
-		s, err := server.New()
-		if err != nil {
-			log.Fatal(err)
-		}
+	s, err := server.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		c, err := cluster.New(directory, listen, s.ListenAndServe, s)
-		if err != nil {
-			log.Fatal(err)
-		}
+	c, err := cluster.New(directory, listen, s.ListenAndServe, s)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		if err := c.ListenAndServe(join); err != nil {
-			log.Fatal(err)
-		}
-
-		ch <- nil
-	}()
-
-	<-ch
+	if err := c.ListenAndServe(join); err != nil {
+		log.Fatal(err)
+	}
 }
