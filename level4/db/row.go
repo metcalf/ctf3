@@ -6,8 +6,8 @@ import (
 
 type Row struct {
 	name         string
-	friendCount  uint8
-	requestCount uint16
+	friendCount  uint32
+	requestCount uint32
 	favoriteWord string
 }
 
@@ -19,6 +19,6 @@ func (r *Row) Format() string {
 		r.favoriteWord)
 }
 
-func (r *Row) RequestCount() uint16 {
+func (r *Row) RequestCount() uint32 {
 	return r.requestCount
 }

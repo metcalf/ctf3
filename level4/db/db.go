@@ -78,7 +78,7 @@ func (db *DB) Get(index int) []*Row {
 	for _, action := range actions {
 		row := responseData[action.rowId]
 
-		row.friendCount += action.inc
+		row.friendCount += uint32(action.inc)
 		if action.inc > 0 {
 			row.requestCount += 1
 		}
