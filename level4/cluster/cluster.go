@@ -93,6 +93,9 @@ func (c *Cluster) ListenAndServe(leader string) error {
 		// Initialize the server by joining itself.
 		log.Println("Initializing new cluster")
 
+		// Give the master time to boot
+		time.Sleep(50 * time.Millisecond)
+
 		_, err := c.raftServer.Do(&raft.DefaultJoinCommand{
 			Name:             c.raftServer.Name(),
 			ConnectionString: c.connectionString(),
@@ -138,6 +141,7 @@ func (c *Cluster) Join(leader string) error {
 
 	var b bytes.Buffer
 	json.NewEncoder(&b).Encode(command)
+	jsonReader := bytes.NewReader(b.Bytes())
 
 	cs, err := transport.Encode(leader)
 	if err != nil {
@@ -146,11 +150,12 @@ func (c *Cluster) Join(leader string) error {
 
 	log.Printf("Sending join command with contents: %s", b.Bytes())
 	for {
-		_, err := c.client.SafePost(cs, "/join", &b)
+		_, err := c.client.SafePost(cs, "/join", jsonReader)
 
 		if err != nil {
 			log.Printf("Unable to join cluster: %s", err)
 			time.Sleep(500 * time.Millisecond)
+			jsonReader.Seek(0, 0)
 		} else {
 			break
 		}
