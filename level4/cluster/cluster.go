@@ -142,13 +142,20 @@ func (c *Cluster) Join(leader string) error {
 
 	var b bytes.Buffer
 	json.NewEncoder(&b).Encode(command)
-	leaderPath, _ := transport.Encode(leader)
-	_, err := c.client.SafePost(leaderPath, "/join", &b)
+
+	cs, err := transport.Encode(leader)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	for {
+		_, err := c.client.SafePost(cs, "/join", &b)
+		if err != nil {
+			log.Printf("Unable to join cluster: %s", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+	}
 }
 
 func (c *Cluster) connectionString() string {
