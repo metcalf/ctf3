@@ -1,0 +1,273 @@
+#!/usr/bin/env node
+
+"use strict";
+
+var http = require('http');
+var httpProxy = require('./network_simulation/lib/proxy');
+var checkServer = require('./network_simulation/lib/check_server');
+var nopt = require('nopt');
+var url = require('url');
+var _ = require('underscore');
+
+var PARAMS = {
+  backendFlight: 2,
+  backendQueue: 1,
+  reqTimeout: 500,
+  reqTime: 75,
+  maxRequests: 4,
+  maxRate: 5,
+};
+
+var RequestData = function (request, response, buffer) {
+  this.request = request;
+  this.response = response;
+  this.buffer = buffer;
+  this.startTime = Date.now();
+  this.ip = request.headers['x-forwarded-for'];
+  this.closed = false;
+
+  var _this = this;
+
+  response.on('close', function(){
+    _this.closed = true;
+  });
+};
+
+function rejectRequest(reqData) {
+  reqData.response.writeHead(400);
+  reqData.response.end();
+}
+
+var QueueProxy = function(proxy, onReady){
+  this.proxy = proxy;
+  this.inFlight = 0;
+
+  var _this = this;
+
+  proxy.on('end', function(){
+    _this.inFlight -= 1;
+    onReady();
+  });
+};
+
+QueueProxy.prototype.full = function(){
+  return this.inFlight >= (PARAMS.backendFlight + PARAMS.backendQueue);
+};
+
+QueueProxy.prototype.waiting = function(){
+  return this.inFlight < PARAMS.backendFlight;
+};
+
+QueueProxy.prototype.push = function(reqData){
+  if(this.full()){
+    console.error("Pushed a request to a full proxy");
+  }
+
+  // console.log('Proxying ' + reqData.ip);
+
+  this.inFlight += 1;
+  this.proxy.proxyRequest(
+    reqData.request, reqData.response, reqData.buffer);
+};
+
+
+var ClientStats = function(){
+  this.data = {};
+};
+
+ClientStats.prototype.record = function(reqData){
+  var datum, i, deltas = 0;
+
+  // Note: rate is an inverse
+  if(!this.data[reqData.ip]){
+    this.data[reqData.ip] = {
+      starts: [],
+      blackhole: false,
+      rate: null,
+    };
+  }
+
+  datum = this.data[reqData.ip];
+
+  datum.starts.push(reqData.startTime);
+
+  if(datum.starts.length > PARAMS.maxRequests){
+    datum.blackhole = true;
+    return;
+  }
+
+  if(datum.starts.length > 1){
+    for(i=0; i < datum.starts.length - 1; i++){
+      deltas += (datum.starts[i+1] - datum.starts[i]);
+    }
+    datum.rate = deltas / (datum.starts.length - 1);
+    if(datum.rate < PARAMS.maxRate){
+      datum.blackhole = true;
+    }
+  }
+};
+
+ClientStats.prototype.shouldReject = function(reqData){
+  var timedOut = (Date.now() + PARAMS.reqTime) - reqData.start > PARAMS.reqTimeout;
+  var blackhole = (this.data[reqData.ip] && this.data[reqData.ip].blackhole);
+  if(timedOut){
+    console.log('timed out');
+  }
+  return timedOut || blackhole;
+};
+
+ClientStats.prototype.score = function(reqData, queued){
+  // Prefer slow clients and clients that have been queueing awhile
+  var queueTime = Date.now() - reqData.startTime;
+  var rate = this.data[reqData.ip].rate;
+  var reqCount = this.data[reqData.ip].starts.length;
+
+  var score = queueTime;
+  score += (PARAMS.maxRequests - reqCount) * 100;
+  /*if(rate){
+    score += Math.min(rate, 400);
+  } else {
+    score += 400;
+  }*/
+
+  return score;
+};
+
+var Queue = function (proxies) {
+  var tryProxyNext = this.tryProxyNext.bind(this);
+
+  this.proxies = _.map(proxies, function(proxy){
+    return new QueueProxy(proxy, tryProxyNext);
+  });
+  this.clientStats = new ClientStats();
+  this.requests = [];
+};
+
+// Adjust threshold rate to maintain queue at X clients
+
+Queue.prototype.takeRequest = function (reqData) {
+  var proxy = this.getAvailableProxy();
+
+  this.clientStats.record(reqData);
+
+  if(!(proxy && proxy.waiting()) && this.clientStats.shouldReject(reqData)){
+    rejectRequest(reqData);
+  } else if(proxy){
+    proxy.push(reqData);
+  } else {
+    this.requests.push(reqData);
+  }
+};
+
+Queue.prototype.getAvailableProxy = function(){
+  var proxy = _.min(this.proxies, function(proxy){
+    return proxy.inFlight;
+  });
+
+  if(!proxy.full()){
+    return proxy;
+  }
+};
+
+Queue.prototype.tryProxyNext = function () {
+  var proxy, reqData, request, _this = this;
+
+  if(this.requests.length === 0){
+    return;
+  }
+
+  proxy = this.getAvailableProxy();
+
+  if(!proxy){
+    console.error("Expected a proxy to be ready but it wasn't!");
+    return;
+  }
+
+  this.requests = _.reject(this.requests, function(reqData){
+    var reject = reqData.closed || _this.clientStats.shouldReject(reqData);
+    if(reject){
+      rejectRequest(reqData);
+    }
+    return reject;
+  });
+
+  if(this.requests.length === 0){
+    console.error("Rejected all outstanding requests!");
+    return;
+  }
+
+  this.requests = _.sortBy(this.requests, function(reqData){
+    return _this.clientStats.score(reqData, _this.requests.length);
+  });
+
+  request = this.requests.pop();
+
+  proxy.push(request);
+};
+
+
+function checkBackends(targets, path, response) {
+  var toCheck = targets.map(function (target) {
+    var output = {};
+    output['host'] = target['host'];
+    output['port'] = target['port'];
+    output['path'] = path;
+    return output;
+  });
+  var success = function () {
+    response.writeHead(200, {"Content-Type": "application/json"});
+    response.end()
+  };
+  var error = function () {
+    response.writeHead(500, {"Content-Type": "application/json"});
+    response.end();
+  };
+  checkServer.checkServers(toCheck, success, error);
+}
+
+function main() {
+  var opts = {
+    "out-ports": String,
+    "in-port": String,
+  };
+  var parsed = nopt(opts),
+      inPort = parsed['in-port'] || '3000',
+      outPorts = parsed['out-ports'] ? parsed['out-ports'].split(",") : ['3001'],
+      targets = [],
+      target,
+      proxies = [],
+      proxy,
+      i;
+
+  for (i = 0; i < outPorts.length; i++) {
+    target = {'host': 'localhost', 'port': outPorts[i]};
+    targets.push(target);
+    proxy = new httpProxy.HttpProxy({'target': target});
+    proxy.identifier = i;
+    proxies.push(proxy);
+  }
+
+  var queue = new Queue(proxies);
+
+  var server = http.createServer(function (req, res) {
+    if (req.method === "HEAD") {
+      // HEAD requests are used to monitor the status of the simulation
+      // proxies[0].proxyRequest(reqData.request, reqData.response, reqData.buffer);
+      checkBackends(targets, url.parse(req.url)['pathname'], res);
+    } else {
+      var buffer = httpProxy.buffer(req);
+      var reqData = new RequestData(req, res, buffer);
+      queue.takeRequest(reqData);
+    }
+  });
+
+  server.on('close', function () {
+    for (i = 0; i < proxies.length; i++) {
+      proxies[i].close();
+    }
+  });
+  console.log("The shield is up and listening.");
+  server.listen(inPort);
+}
+
+main();
