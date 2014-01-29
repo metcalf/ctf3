@@ -79,8 +79,18 @@ OPTIONS:
 	raft.RegisterCommand(&db.Action{})
 
 	go func() {
-		for {
-			run(directory, listen, join)
+		s, err := server.New()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		c, err := cluster.New(directory, listen, s.ListenAndServe, s)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := c.ListenAndServe(join); err != nil {
+			log.Fatal(err)
 		}
 	}()
 
@@ -88,26 +98,4 @@ OPTIONS:
 	sigchan := make(chan os.Signal)
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigchan
-}
-
-func run(directory string, listen string, join string) {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Println("Recovered in run", r)
-		}
-	}()
-
-	s, err := server.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	c, err := cluster.New(directory, listen, s.ListenAndServe, s)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := c.ListenAndServe(join); err != nil {
-		log.Fatal(err)
-	}
 }

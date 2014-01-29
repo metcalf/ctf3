@@ -13,7 +13,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -52,11 +51,7 @@ func New(path string, listen string, handler RequestHandler, context interface{}
 	if b, err := ioutil.ReadFile(filepath.Join(path, "name")); err == nil {
 		c.name = string(b)
 	} else {
-		rand.Seed(time.Now().UTC().UnixNano())
-		c.name = fmt.Sprintf("%07x", rand.Int())[0:7]
-		if err = ioutil.WriteFile(filepath.Join(path, "name"), []byte(c.name), 0644); err != nil {
-			panic(err)
-		}
+		c.name = listen
 	}
 
 	return c, nil
@@ -85,6 +80,9 @@ func (c *Cluster) ListenAndServe(leader string) error {
 
 		log.Printf("Attempting to join leader: %s", leader)
 
+		// Give the master time to boot
+		time.Sleep(50 * time.Millisecond)
+
 		if err := c.Join(leader); err != nil {
 			return err
 		}
@@ -92,9 +90,6 @@ func (c *Cluster) ListenAndServe(leader string) error {
 	} else {
 		// Initialize the server by joining itself.
 		log.Println("Initializing new cluster")
-
-		// Give the master time to boot
-		time.Sleep(50 * time.Millisecond)
 
 		_, err := c.raftServer.Do(&raft.DefaultJoinCommand{
 			Name:             c.raftServer.Name(),

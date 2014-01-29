@@ -113,6 +113,10 @@ func (t *HTTPTransporter) Install(server raft.Server, mux HTTPMuxer) {
 // Outgoing
 //--------------------------------------
 
+func debugAction(server raft.Server, peer *raft.Peer, method string, url string) {
+	debuglog.Debugln(server.Name(), "->", peer.Name, "POST", url)
+}
+
 // Sends an AppendEntries RPC to a peer.
 func (t *HTTPTransporter) SendAppendEntriesRequest(server raft.Server, peer *raft.Peer, req *raft.AppendEntriesRequest) *raft.AppendEntriesResponse {
 	var b bytes.Buffer
@@ -122,7 +126,7 @@ func (t *HTTPTransporter) SendAppendEntriesRequest(server raft.Server, peer *raf
 	}
 
 	url := joinPath(peer.ConnectionString, t.AppendEntriesPath())
-	debuglog.Debugln(server.Name(), "->", peer.Name, "POST", url)
+	debugAction(server, peer, "POST", url)
 
 	t.Transport.ResponseHeaderTimeout = server.ElectionTimeout()
 	httpResp, err := t.httpClient.Post(url, "application/protobuf", &b)
@@ -150,7 +154,7 @@ func (t *HTTPTransporter) SendVoteRequest(server raft.Server, peer *raft.Peer, r
 	}
 
 	url := fmt.Sprintf("%s%s", peer.ConnectionString, t.RequestVotePath())
-	debuglog.Debugln(server.Name(), "POST", url)
+	debugAction(server, peer, "POST", url)
 
 	httpResp, err := t.httpClient.Post(url, "application/protobuf", &b)
 	if httpResp == nil || err != nil {
@@ -186,7 +190,7 @@ func (t *HTTPTransporter) SendSnapshotRequest(server raft.Server, peer *raft.Pee
 	}
 
 	url := joinPath(peer.ConnectionString, t.snapshotPath)
-	debuglog.Debugln(server.Name(), "POST", url)
+	debugAction(server, peer, "POST", url)
 
 	httpResp, err := t.httpClient.Post(url, "application/protobuf", &b)
 	if httpResp == nil || err != nil {
@@ -213,7 +217,7 @@ func (t *HTTPTransporter) SendSnapshotRecoveryRequest(server raft.Server, peer *
 	}
 
 	url := joinPath(peer.ConnectionString, t.snapshotRecoveryPath)
-	debuglog.Debugln(server.Name(), "POST", url)
+	debugAction(server, peer, "POST", url)
 
 	httpResp, err := t.httpClient.Post(url, "application/protobuf", &b)
 	if httpResp == nil || err != nil {
